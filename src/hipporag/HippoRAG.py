@@ -48,47 +48,39 @@ class HippoRAG:
                  azure_endpoint=None,
                  azure_embedding_endpoint=None):
         """
-        Initializes an instance of the class and its related components.
+        初始化 HippoRAG 实例及其相关组件。
 
-        Attributes:
-            global_config (BaseConfig): The global configuration settings for the instance. An instance
-                of BaseConfig is used if no value is provided.
-            saving_dir (str): The directory where specific HippoRAG instances will be stored. This defaults
-                to `outputs` if no value is provided.
-            llm_model (BaseLLM): The language model used for processing based on the global
-                configuration settings.
-            openie (Union[OpenIE, VLLMOfflineOpenIE]): The Open Information Extraction module
-                configured in either online or offline mode based on the global settings.
-            graph: The graph instance initialized by the `initialize_graph` method.
-            embedding_model (BaseEmbeddingModel): The embedding model associated with the current
-                configuration.
-            chunk_embedding_store (EmbeddingStore): The embedding store handling chunk embeddings.
-            entity_embedding_store (EmbeddingStore): The embedding store handling entity embeddings.
-            fact_embedding_store (EmbeddingStore): The embedding store handling fact embeddings.
-            prompt_template_manager (PromptTemplateManager): The manager for handling prompt templates
-                and roles mappings.
-            openie_results_path (str): The file path for storing Open Information Extraction results
-                based on the dataset and LLM name in the global configuration.
-            rerank_filter (Optional[DSPyFilter]): The filter responsible for reranking information
-                when a rerank file path is specified in the global configuration.
-            ready_to_retrieve (bool): A flag indicating whether the system is ready for retrieval
-                operations.
+        属性:
+            global_config (BaseConfig): 实例的全局配置设置。如果未提供值，则使用 BaseConfig 的实例。
+            saving_dir (str): 存储特定 HippoRAG 实例的目录。如果未提供值，默认为 `outputs`。
+            llm_model (BaseLLM): 基于全局配置设置用于处理的语言模型。
+            openie (Union[OpenIE, VLLMOfflineOpenIE]): 开放信息抽取模块，根据全局设置配置为在线或离线模式。
+            graph: 由 `initialize_graph` 方法初始化的图实例。
+            embedding_model (BaseEmbeddingModel): 与当前配置关联的嵌入模型。
+            chunk_embedding_store (EmbeddingStore): 处理段落嵌入的嵌入存储。
+            entity_embedding_store (EmbeddingStore): 处理实体嵌入的嵌入存储。
+            fact_embedding_store (EmbeddingStore): 处理事实嵌入的嵌入存储。
+            prompt_template_manager (PromptTemplateManager): 用于处理提示模板和角色映射的管理器。
+            openie_results_path (str): 基于全局配置中的数据集和 LLM 名称存储开放信息抽取结果的文件路径。
+            rerank_filter (Optional[DSPyFilter]): 当全局配置中指定了重排序文件路径时，负责重排序信息的过滤器。
+            ready_to_retrieve (bool): 指示系统是否准备好进行检索操作的标志。
 
-        Parameters:
-            global_config: The global configuration object. Defaults to None, leading to initialization
-                of a new BaseConfig object.
-            working_dir: The directory for storing working files. Defaults to None, constructing a default
-                directory based on the class name and timestamp.
-            llm_model_name: LLM model name, can be inserted directly as well as through configuration file.
-            embedding_model_name: Embedding model name, can be inserted directly as well as through configuration file.
-            llm_base_url: LLM URL for a deployed LLM model, can be inserted directly as well as through configuration file.
+        参数:
+            global_config: 全局配置对象。默认为 None，此时会初始化一个新的 BaseConfig 对象。
+            save_dir: 存储工作文件的目录。
+            llm_model_name: LLM 模型名称，可以直接插入，也可以通过配置文件插入。
+            embedding_model_name: 嵌入模型名称，可以直接插入，也可以通过配置文件插入。
+            llm_base_url: 已部署 LLM 模型的 URL，可以直接插入，也可以通过配置文件插入。
+            embedding_base_url: 嵌入模型的 URL。
+            azure_endpoint: Azure 端点。
+            azure_embedding_endpoint: Azure 嵌入端点。
         """
         if global_config is None:
             self.global_config = BaseConfig()
         else:
             self.global_config = global_config
 
-        #Overwriting Configuration if Specified
+        # 如果指定了参数，则覆盖配置
         if save_dir is not None:
             self.global_config.save_dir = save_dir
 
@@ -113,7 +105,7 @@ class HippoRAG:
         _print_config = ",\n  ".join([f"{k} = {v}" for k, v in asdict(self.global_config).items()])
         logger.debug(f"HippoRAG init with config:\n  {_print_config}\n")
 
-        #LLM and embedding model specific working directories are created under every specified saving directories
+        # 在每个指定的保存目录下创建特定于 LLM 和嵌入模型的工作目录
         llm_label = self.global_config.llm_name.replace("/", "_")
         embedding_label = self.global_config.embedding_model_name.replace("/", "_")
         self.working_dir = os.path.join(self.global_config.save_dir, f"{llm_label}_{embedding_label}")
@@ -122,8 +114,10 @@ class HippoRAG:
             logger.info(f"Creating working directory: {self.working_dir}")
             os.makedirs(self.working_dir, exist_ok=True)
 
+        # 初始化 LLM 模型
         self.llm_model: BaseLLM = _get_llm_class(self.global_config)
 
+        # 根据配置初始化 OpenIE 模块（在线、离线 VLLM 或离线 Transformers）
         if self.global_config.openie_mode == 'online':
             self.openie = OpenIE(llm_model=self.llm_model)
         elif self.global_config.openie_mode == 'offline':
@@ -131,14 +125,18 @@ class HippoRAG:
         elif self.global_config.openie_mode ==  'Transformers-offline':
             self.openie = TransformersOfflineOpenIE(self.global_config)
 
+        # 初始化图结构
         self.graph = self.initialize_graph()
 
+        # 初始化嵌入模型（如果是离线 OpenIE 模式则跳过）
         if self.global_config.openie_mode == 'offline':
             self.embedding_model = None
         else:
             self.embedding_model: BaseEmbeddingModel = _get_embedding_model_class(
                 embedding_model_name=self.global_config.embedding_model_name)(global_config=self.global_config,
                                                                               embedding_model_name=self.global_config.embedding_model_name)
+        
+        # 初始化向量存储（段落、实体、事实）
         self.chunk_embedding_store = EmbeddingStore(self.embedding_model,
                                                     os.path.join(self.working_dir, "chunk_embeddings"),
                                                     self.global_config.embedding_batch_size, 'chunk')
@@ -149,10 +147,13 @@ class HippoRAG:
                                                    os.path.join(self.working_dir, "fact_embeddings"),
                                                    self.global_config.embedding_batch_size, 'fact')
 
+        # 初始化提示模板管理器
         self.prompt_template_manager = PromptTemplateManager(role_mapping={"system": "system", "user": "user", "assistant": "assistant"})
 
+        # 设置 OpenIE 结果保存路径
         self.openie_results_path = os.path.join(self.global_config.save_dir,f'openie_results_ner_{self.global_config.llm_name.replace("/", "_")}.json')
 
+        # 初始化重排序过滤器
         self.rerank_filter = DSPyFilter(self)
 
         self.ready_to_retrieve = False
@@ -213,53 +214,66 @@ class HippoRAG:
         if self.global_config.save_openie:
             self.save_openie_results(all_openie_info)
 
-        assert False, logger.info('Done with OpenIE, run online indexing for future retrieval.')
+        assert False, logger.info('Done with OpenIE, run online indexing for future retrieval.')  # 主动报错并停止运行
 
     def index(self, docs: List[str]):
         """
-        Indexes the given documents based on the HippoRAG 2 framework which generates an OpenIE knowledge graph
-        based on the given documents and encodes passages, entities and facts separately for later retrieval.
+        基于 HippoRAG 2 框架对给定文档进行索引。
+        该过程会基于文档生成 OpenIE 知识图谱，并分别对段落、实体和事实进行编码，以便后续检索。
 
-        Parameters:
+        参数:
             docs : List[str]
-                A list of documents to be indexed.
+                待索引的文档列表。
         """
 
         logger.info(f"Indexing Documents")
 
         logger.info(f"Performing OpenIE")
 
+        # 如果是离线模式，先执行预处理（抽取并保存），然后程序会终止。
+        # 下次运行时（非离线模式或已有缓存），将跳过此步骤直接加载结果。
         if self.global_config.openie_mode == 'offline':
             self.pre_openie(docs)
 
+        # 1. 将文档插入段落向量存储（Chunk Embedding Store）
+        # 这里会计算文档的哈希 ID，如果已存在则不会重复插入
         self.chunk_embedding_store.insert_strings(docs)
         chunk_to_rows = self.chunk_embedding_store.get_all_id_to_rows()
 
-        all_openie_info, chunk_keys_to_process = self.load_existing_openie(chunk_to_rows.keys())
+        # 2. 加载已有的 OpenIE 结果(all_openie_info)，并找出需要新处理的文档块(chunk_keys_to_process)
+        all_openie_info, chunk_keys_to_process = self.load_existing_openie(chunk_to_rows.keys())  # 这里的输入为所有的哈希IDs
         new_openie_rows = {k : chunk_to_rows[k] for k in chunk_keys_to_process}
 
+        # 3. 对新文档块执行 OpenIE（命名实体识别 + 三元组抽取）
         if len(chunk_keys_to_process) > 0:
             new_ner_results_dict, new_triple_results_dict = self.openie.batch_openie(new_openie_rows)
             self.merge_openie_results(all_openie_info, new_openie_rows, new_ner_results_dict, new_triple_results_dict)
 
+        # 4. 如果配置了保存 OpenIE 结果，则将其持久化到磁盘
         if self.global_config.save_openie:
             self.save_openie_results(all_openie_info)
 
+        # 5. 格式化 OpenIE 结果，准备构建图
         ner_results_dict, triple_results_dict = reformat_openie_results(all_openie_info)
 
         assert len(chunk_to_rows) == len(ner_results_dict) == len(triple_results_dict), f"len(chunk_to_rows): {len(chunk_to_rows)}, len(ner_results_dict): {len(ner_results_dict)}, len(triple_results_dict): {len(triple_results_dict)}"
 
-        # prepare data_store
+        # 准备数据存储
         chunk_ids = list(chunk_to_rows.keys())
 
+        # 处理三元组文本
         chunk_triples = [[text_processing(t) for t in triple_results_dict[chunk_id].triples] for chunk_id in chunk_ids]
+        # 提取实体节点
         entity_nodes, chunk_triple_entities = extract_entity_nodes(chunk_triples)
+        # 展平事实列表
         facts = flatten_facts(chunk_triples)
 
         logger.info(f"Encoding Entities")
+        # 6. 对实体进行编码并存入实体向量存储
         self.entity_embedding_store.insert_strings(entity_nodes)
 
         logger.info(f"Encoding Facts")
+        # 7. 对事实（三元组）进行编码并存入事实向量存储
         self.fact_embedding_store.insert_strings([str(fact) for fact in facts])
 
         logger.info(f"Constructing Graph")
@@ -267,13 +281,19 @@ class HippoRAG:
         self.node_to_node_stats = {}
         self.ent_node_to_chunk_ids = {}
 
+        # 8. 构建图结构
+        # 添加事实边（实体之间的关系）
         self.add_fact_edges(chunk_ids, chunk_triples)
+        # 添加段落边（段落与实体之间的关系）
         num_new_chunks = self.add_passage_edges(chunk_ids, chunk_triple_entities)
 
+        # 9. 如果有新文档块，则更新图并保存
         if num_new_chunks > 0:
             logger.info(f"Found {num_new_chunks} new chunks to save into graph.")
+            # 添加同义词边（相似实体之间的连接）
             self.add_synonymy_edges()
 
+            # 扩展图（添加新节点和边）
             self.augment_graph()
             self.save_igraph()
 
@@ -883,44 +903,45 @@ class HippoRAG:
 
     def load_existing_openie(self, chunk_keys: List[str]) -> Tuple[List[dict], Set[str]]:
         """
-        Loads existing OpenIE results from the specified file if it exists and combines
-        them with new content while standardizing indices. If the file does not exist or
-        is configured to be re-initialized from scratch with the flag `force_openie_from_scratch`,
-        it prepares new entries for processing.
+        加载现有的 OpenIE 结果（如果存在），并将其与新内容合并，同时标准化索引。
+        如果文件不存在，或者配置了 `force_openie_from_scratch` 标志以强制从头开始，
+        则准备新的条目进行处理。
 
-        Args:
-            chunk_keys (List[str]): A list of chunk keys that represent identifiers
-                                     for the content to be processed.
+        参数:
+            chunk_keys (List[str]): 代表待处理内容的段落键（哈希 ID）列表。
 
-        Returns:
-            Tuple[List[dict], Set[str]]: A tuple where the first element is the existing OpenIE
-                                         information (if any) loaded from the file, and the
-                                         second element is a set of chunk keys that still need to
-                                         be saved or processed.
+        返回:
+            Tuple[List[dict], Set[str]]: 一个元组，包含：
+                - 第一项是从文件加载的现有 OpenIE 信息列表（如果有）。
+                - 第二项是仍需保存或处理的段落键集合。
         """
 
-        # combine openie_results with contents already in file, if file exists
+        # 将 openie_results 与文件中已有的内容合并（如果文件存在）
         chunk_keys_to_save = set()
 
+        # 检查是否强制重新运行 OpenIE，以及结果文件是否存在
         if not self.global_config.force_openie_from_scratch and os.path.isfile(self.openie_results_path):
             openie_results = json.load(open(self.openie_results_path))
             all_openie_info = openie_results.get('docs', [])
 
-            #Standardizing indices for OpenIE Files.
-
+            # 标准化 OpenIE 文件中的索引。
+            # 重新计算哈希 ID 以确保一致性（防止旧文件中的 ID 生成逻辑与当前不一致）
             renamed_openie_info = []
             for openie_info in all_openie_info:
                 openie_info['idx'] = compute_mdhash_id(openie_info['passage'], 'chunk-')
                 renamed_openie_info.append(openie_info)
 
-            all_openie_info = renamed_openie_info
+            all_openie_info = renamed_openie_info  # 这里冗余了，二者实际是同一个东西
 
+            # 获取已存在的 OpenIE 结果的键集合
             existing_openie_keys = set([info['idx'] for info in all_openie_info])
 
+            # 找出哪些输入的 chunk_key 还没有对应的 OpenIE 结果
             for chunk_key in chunk_keys:
                 if chunk_key not in existing_openie_keys:
                     chunk_keys_to_save.add(chunk_key)
         else:
+            # 如果强制重跑或文件不存在，则所有输入的 chunk_keys 都需要处理
             all_openie_info = []
             chunk_keys_to_save = chunk_keys
 

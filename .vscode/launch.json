@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: demo_local.py (with NVIDIA libs)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/demo_local.py",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env"
+        }
+    ]
+}

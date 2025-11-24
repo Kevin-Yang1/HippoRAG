@@ -1,0 +1,155 @@
+<html>
+    <head>
+        <meta charset="utf-8">
+        
+            <script src="lib/bindings/utils.js"></script>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/dist/vis-network.min.css" integrity="sha512-WgxfT5LWjfszlPHXRmBWHkV2eceiWTOBvrKCNbdgDYTHrT2AeLCGbF4sZlZw3UMN3WtL0tGUoIAKsu8mllg/XA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.js" integrity="sha512-LnvoEWDFrqGHlHmDD2101OrLcbsfkrzoSpvtSQtxK3RMnRV0eOkhhBN2dXHKRrUU8p2DGRTk35n4O8nWSVe1mQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            
+        
+<center>
+<h1></h1>
+</center>
+
+<!-- <link rel="stylesheet" href="../node_modules/vis/dist/vis.min.css" type="text/css" />
+<script type="text/javascript" src="../node_modules/vis/dist/vis.js"> </script>-->
+        <link
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/css/bootstrap.min.css"
+          rel="stylesheet"
+          integrity="sha384-eOJMYsd53ii+scO/bJGFsiCZc+5NDVN2yr8+0RDqr0Ql0h+rP48ckxlpbzKgwra6"
+          crossorigin="anonymous"
+        />
+        <script
+          src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/js/bootstrap.bundle.min.js"
+          integrity="sha384-JEW9xMcG8R+pH31jmWH6WWP0WintQrMb4s7ZOdauHnUtxwoG2vI5DkLtS3qm9Ekf"
+          crossorigin="anonymous"
+        ></script>
+
+
+        <center>
+          <h1></h1>
+        </center>
+        <style type="text/css">
+
+             #mynetwork {
+                 width: 100%;
+                 height: 750px;
+                 background-color: #222222;
+                 border: 1px solid lightgray;
+                 position: relative;
+                 float: left;
+             }
+
+             
+
+             
+
+             
+        </style>
+    </head>
+
+
+    <body>
+        <div class="card" style="width: 100%">
+            
+            
+            <div id="mynetwork" class="card-body"></div>
+        </div>
+
+        
+        
+
+        <script type="text/javascript">
+
+              // initialize global variables.
+              var edges;
+              var nodes;
+              var allNodes;
+              var allEdges;
+              var nodeColors;
+              var originalNodes;
+              var network;
+              var container;
+              var options, data;
+              var filter = {
+                  item : '',
+                  property : '',
+                  value : []
+              };
+
+              
+
+              
+
+              // This method is responsible for drawing the graph, returns the drawn network
+              function drawGraph() {
+                  var container = document.getElementById('mynetwork');
+
+                  
+
+                  // parsing and collecting nodes and edges from the python
+                  nodes = new vis.DataSet([{"color": "#97c2fc", "content": "a prince", "font": {"color": "white"}, "hash_id": "entity-c67d931086667b952a73a6b6951344a7", "id": 0, "label": "a prince", "name": "entity-c67d931086667b952a73a6b6951344a7", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-c67d931086667b952a73a6b6951344a7\u0027, \u0027content\u0027: np.str_(\u0027a prince\u0027), \u0027name\u0027: \u0027entity-c67d931086667b952a73a6b6951344a7\u0027}"}, {"color": "#97c2fc", "content": "lost glass slipper", "font": {"color": "white"}, "hash_id": "entity-1b75941b911f6ab224387f59b5ad0309", "id": 4, "label": "lost glass slipper", "name": "entity-1b75941b911f6ab224387f59b5ad0309", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-1b75941b911f6ab224387f59b5ad0309\u0027, \u0027content\u0027: np.str_(\u0027lost glass slipper\u0027), \u0027name\u0027: \u0027entity-1b75941b911f6ab224387f59b5ad0309\u0027}"}, {"color": "#97c2fc", "content": "the kingdom", "font": {"color": "white"}, "hash_id": "entity-f22d0ccf0f02bc4b8e685720e4d8fd6f", "id": 13, "label": "the kingdom", "name": "entity-f22d0ccf0f02bc4b8e685720e4d8fd6f", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-f22d0ccf0f02bc4b8e685720e4d8fd6f\u0027, \u0027content\u0027: np.str_(\u0027the kingdom\u0027), \u0027name\u0027: \u0027entity-f22d0ccf0f02bc4b8e685720e4d8fd6f\u0027}"}, {"color": "#97c2fc", "content": "The prince used the lost glass slipper to search the kingdom.", "font": {"color": "white"}, "hash_id": "chunk-730ec30c07b2d626ab90d43b13155b15", "id": 20, "label": "The prince used the lost gl...", "name": "chunk-730ec30c07b2d626ab90d43b13155b15", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027chunk-730ec30c07b2d626ab90d43b13155b15\u0027, \u0027content\u0027: \u0027The prince used the lost glass slipper to search the kingdom.\u0027, \u0027name\u0027: \u0027chunk-730ec30c07b2d626ab90d43b13155b15\u0027}"}, {"color": "#97c2fc", "content": "prince", "font": {"color": "white"}, "hash_id": "entity-2077e4a6bafa9b4e7b55e1fff16818af", "id": 10, "label": "prince", "name": "entity-2077e4a6bafa9b4e7b55e1fff16818af", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-2077e4a6bafa9b4e7b55e1fff16818af\u0027, \u0027content\u0027: np.str_(\u0027prince\u0027), \u0027name\u0027: \u0027entity-2077e4a6bafa9b4e7b55e1fff16818af\u0027}"}, {"color": "#97c2fc", "content": "cinderella", "font": {"color": "white"}, "hash_id": "entity-583fea53729bcb119bc1099a0dc5e73d", "id": 1, "label": "cinderella", "name": "entity-583fea53729bcb119bc1099a0dc5e73d", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-583fea53729bcb119bc1099a0dc5e73d\u0027, \u0027content\u0027: np.str_(\u0027cinderella\u0027), \u0027name\u0027: \u0027entity-583fea53729bcb119bc1099a0dc5e73d\u0027}"}, {"color": "#97c2fc", "content": "royal ball", "font": {"color": "white"}, "hash_id": "entity-7c6d9030e4c7630407701d43317f0af1", "id": 12, "label": "royal ball", "name": "entity-7c6d9030e4c7630407701d43317f0af1", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-7c6d9030e4c7630407701d43317f0af1\u0027, \u0027content\u0027: np.str_(\u0027royal ball\u0027), \u0027name\u0027: \u0027entity-7c6d9030e4c7630407701d43317f0af1\u0027}"}, {"color": "#97c2fc", "content": "the slipper", "font": {"color": "white"}, "hash_id": "entity-10020442e7cb6d01f31541443b07d215", "id": 14, "label": "the slipper", "name": "entity-10020442e7cb6d01f31541443b07d215", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-10020442e7cb6d01f31541443b07d215\u0027, \u0027content\u0027: np.str_(\u0027the slipper\u0027), \u0027name\u0027: \u0027entity-10020442e7cb6d01f31541443b07d215\u0027}"}, {"color": "#97c2fc", "content": "Cinderella attended the royal ball.", "font": {"color": "white"}, "hash_id": "chunk-7c65190068261ee31c92160023eb107f", "id": 19, "label": "Cinderella attended the roy...", "name": "chunk-7c65190068261ee31c92160023eb107f", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027chunk-7c65190068261ee31c92160023eb107f\u0027, \u0027content\u0027: \u0027Cinderella attended the royal ball.\u0027, \u0027name\u0027: \u0027chunk-7c65190068261ee31c92160023eb107f\u0027}"}, {"color": "#97c2fc", "content": "When the slipper fit perfectly, Cinderella was reunited with the prince.", "font": {"color": "white"}, "hash_id": "chunk-0b3f86e049d90fe8d425738a4e9dcdc1", "id": 21, "label": "When the slipper fit perfec...", "name": "chunk-0b3f86e049d90fe8d425738a4e9dcdc1", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027chunk-0b3f86e049d90fe8d425738a4e9dcdc1\u0027, \u0027content\u0027: \u0027When the slipper fit perfectly, Cinderella was reunited with the prince.\u0027, \u0027name\u0027: \u0027chunk-0b3f86e049d90fe8d425738a4e9dcdc1\u0027}"}, {"color": "#97c2fc", "content": "erik hort", "font": {"color": "white"}, "hash_id": "entity-a92df5e4b3532f7dfdf8fca579bbbf70", "id": 2, "label": "erik hort", "name": "entity-a92df5e4b3532f7dfdf8fca579bbbf70", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-a92df5e4b3532f7dfdf8fca579bbbf70\u0027, \u0027content\u0027: np.str_(\u0027erik hort\u0027), \u0027name\u0027: \u0027entity-a92df5e4b3532f7dfdf8fca579bbbf70\u0027}"}, {"color": "#97c2fc", "content": "montebello", "font": {"color": "white"}, "hash_id": "entity-8009bf5bbfdc73518c6901e4c1ff2fec", "id": 7, "label": "montebello", "name": "entity-8009bf5bbfdc73518c6901e4c1ff2fec", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-8009bf5bbfdc73518c6901e4c1ff2fec\u0027, \u0027content\u0027: np.str_(\u0027montebello\u0027), \u0027name\u0027: \u0027entity-8009bf5bbfdc73518c6901e4c1ff2fec\u0027}"}, {"color": "#97c2fc", "content": "Erik Hort\u0027s birthplace is Montebello.", "font": {"color": "white"}, "hash_id": "chunk-05ebe6854219bf0492e050c241805da4", "id": 22, "label": "Erik Hort\u0027s birthplace is M...", "name": "chunk-05ebe6854219bf0492e050c241805da4", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027chunk-05ebe6854219bf0492e050c241805da4\u0027, \u0027content\u0027: \"Erik Hort\u0027s birthplace is Montebello.\", \u0027name\u0027: \u0027chunk-05ebe6854219bf0492e050c241805da4\u0027}"}, {"color": "#97c2fc", "content": "george rankin", "font": {"color": "white"}, "hash_id": "entity-b20945cd87385383acdd501bfd178936", "id": 3, "label": "george rankin", "name": "entity-b20945cd87385383acdd501bfd178936", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-b20945cd87385383acdd501bfd178936\u0027, \u0027content\u0027: np.str_(\u0027george rankin\u0027), \u0027name\u0027: \u0027entity-b20945cd87385383acdd501bfd178936\u0027}"}, {"color": "#97c2fc", "content": "politician", "font": {"color": "white"}, "hash_id": "entity-8832a7190f55e53078e8aa42aad1e5b2", "id": 9, "label": "politician", "name": "entity-8832a7190f55e53078e8aa42aad1e5b2", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-8832a7190f55e53078e8aa42aad1e5b2\u0027, \u0027content\u0027: np.str_(\u0027politician\u0027), \u0027name\u0027: \u0027entity-8832a7190f55e53078e8aa42aad1e5b2\u0027}"}, {"color": "#97c2fc", "content": "George Rankin is a politician.", "font": {"color": "white"}, "hash_id": "chunk-9a222cece7544520899c76ebe6a88814", "id": 17, "label": "George Rankin is a politician.", "name": "chunk-9a222cece7544520899c76ebe6a88814", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027chunk-9a222cece7544520899c76ebe6a88814\u0027, \u0027content\u0027: \u0027George Rankin is a politician.\u0027, \u0027name\u0027: \u0027chunk-9a222cece7544520899c76ebe6a88814\u0027}"}, {"color": "#97c2fc", "content": "marina", "font": {"color": "white"}, "hash_id": "entity-ce5225d01c39d2567bc229501d9e610d", "id": 5, "label": "marina", "name": "entity-ce5225d01c39d2567bc229501d9e610d", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-ce5225d01c39d2567bc229501d9e610d\u0027, \u0027content\u0027: np.str_(\u0027marina\u0027), \u0027name\u0027: \u0027entity-ce5225d01c39d2567bc229501d9e610d\u0027}"}, {"color": "#97c2fc", "content": "minsk", "font": {"color": "white"}, "hash_id": "entity-5c2c2a6c9bed1b1e962c6800b4edfb11", "id": 6, "label": "minsk", "name": "entity-5c2c2a6c9bed1b1e962c6800b4edfb11", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-5c2c2a6c9bed1b1e962c6800b4edfb11\u0027, \u0027content\u0027: np.str_(\u0027minsk\u0027), \u0027name\u0027: \u0027entity-5c2c2a6c9bed1b1e962c6800b4edfb11\u0027}"}, {"color": "#97c2fc", "content": "Marina is bom in Minsk.", "font": {"color": "white"}, "hash_id": "chunk-435eaa3536ea075eb9b3cee5c14a4840", "id": 23, "label": "Marina is bom in Minsk.", "name": "chunk-435eaa3536ea075eb9b3cee5c14a4840", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027chunk-435eaa3536ea075eb9b3cee5c14a4840\u0027, \u0027content\u0027: \u0027Marina is bom in Minsk.\u0027, \u0027name\u0027: \u0027chunk-435eaa3536ea075eb9b3cee5c14a4840\u0027}"}, {"color": "#97c2fc", "content": "rockland county", "font": {"color": "white"}, "hash_id": "entity-781056079c8858c93d50d48e995a0a5d", "id": 11, "label": "rockland county", "name": "entity-781056079c8858c93d50d48e995a0a5d", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-781056079c8858c93d50d48e995a0a5d\u0027, \u0027content\u0027: np.str_(\u0027rockland county\u0027), \u0027name\u0027: \u0027entity-781056079c8858c93d50d48e995a0a5d\u0027}"}, {"color": "#97c2fc", "content": "Montebello is a part of Rockland County.", "font": {"color": "white"}, "hash_id": "chunk-d6df73e3b8e71d69e39075792fb855cf", "id": 24, "label": "Montebello is a part of Roc...", "name": "chunk-d6df73e3b8e71d69e39075792fb855cf", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027chunk-d6df73e3b8e71d69e39075792fb855cf\u0027, \u0027content\u0027: \u0027Montebello is a part of Rockland County.\u0027, \u0027name\u0027: \u0027chunk-d6df73e3b8e71d69e39075792fb855cf\u0027}"}, {"color": "#97c2fc", "content": "oliver badman", "font": {"color": "white"}, "hash_id": "entity-ecc8f5203c457a834773baef02b6ab4a", "id": 8, "label": "oliver badman", "name": "entity-ecc8f5203c457a834773baef02b6ab4a", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-ecc8f5203c457a834773baef02b6ab4a\u0027, \u0027content\u0027: np.str_(\u0027oliver badman\u0027), \u0027name\u0027: \u0027entity-ecc8f5203c457a834773baef02b6ab4a\u0027}"}, {"color": "#97c2fc", "content": "Oliver Badman is a politician.", "font": {"color": "white"}, "hash_id": "chunk-e1530292228659b056a69bf4ca0aad85", "id": 16, "label": "Oliver Badman is a politician.", "name": "chunk-e1530292228659b056a69bf4ca0aad85", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027chunk-e1530292228659b056a69bf4ca0aad85\u0027, \u0027content\u0027: \u0027Oliver Badman is a politician.\u0027, \u0027name\u0027: \u0027chunk-e1530292228659b056a69bf4ca0aad85\u0027}"}, {"color": "#97c2fc", "content": "thomas marwick", "font": {"color": "white"}, "hash_id": "entity-4382e967a6b504ff11a3f78bd80a8a6d", "id": 15, "label": "thomas marwick", "name": "entity-4382e967a6b504ff11a3f78bd80a8a6d", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027entity-4382e967a6b504ff11a3f78bd80a8a6d\u0027, \u0027content\u0027: np.str_(\u0027thomas marwick\u0027), \u0027name\u0027: \u0027entity-4382e967a6b504ff11a3f78bd80a8a6d\u0027}"}, {"color": "#97c2fc", "content": "Thomas Marwick is a politician.", "font": {"color": "white"}, "hash_id": "chunk-733ff7b5b1080ca4eb636ab168e5662d", "id": 18, "label": "Thomas Marwick is a politic...", "name": "chunk-733ff7b5b1080ca4eb636ab168e5662d", "shape": "dot", "size": 10, "title": "{\u0027hash_id\u0027: \u0027chunk-733ff7b5b1080ca4eb636ab168e5662d\u0027, \u0027content\u0027: \u0027Thomas Marwick is a politician.\u0027, \u0027name\u0027: \u0027chunk-733ff7b5b1080ca4eb636ab168e5662d\u0027}"}]);
+                  edges = new vis.DataSet([{"from": 0, "to": 4, "width": 1.0}, {"from": 0, "to": 13, "width": 1.0}, {"from": 0, "to": 20, "width": 1.0}, {"from": 0, "to": 10, "width": 0.8174440264701843}, {"from": 1, "to": 12, "width": 1.0}, {"from": 1, "to": 10, "width": 2.0}, {"from": 1, "to": 14, "width": 1.0}, {"from": 1, "to": 19, "width": 1.0}, {"from": 1, "to": 21, "width": 1.0}, {"from": 2, "to": 7, "width": 1.0}, {"from": 2, "to": 22, "width": 1.0}, {"from": 3, "to": 9, "width": 1.0}, {"from": 3, "to": 17, "width": 1.0}, {"from": 4, "to": 20, "width": 1.0}, {"from": 5, "to": 6, "width": 1.0}, {"from": 5, "to": 23, "width": 1.0}, {"from": 6, "to": 23, "width": 1.0}, {"from": 7, "to": 11, "width": 1.0}, {"from": 7, "to": 22, "width": 1.0}, {"from": 7, "to": 24, "width": 1.0}, {"from": 8, "to": 9, "width": 1.0}, {"from": 8, "to": 16, "width": 1.0}, {"from": 9, "to": 15, "width": 1.0}, {"from": 9, "to": 16, "width": 1.0}, {"from": 9, "to": 17, "width": 1.0}, {"from": 9, "to": 18, "width": 1.0}, {"from": 10, "to": 14, "width": 1.0}, {"from": 10, "to": 21, "width": 1.0}, {"from": 11, "to": 24, "width": 1.0}, {"from": 12, "to": 19, "width": 1.0}, {"from": 13, "to": 20, "width": 1.0}, {"from": 14, "to": 21, "width": 1.0}, {"from": 15, "to": 18, "width": 1.0}]);
+
+                  nodeColors = {};
+                  allNodes = nodes.get({ returnType: "Object" });
+                  for (nodeId in allNodes) {
+                    nodeColors[nodeId] = allNodes[nodeId].color;
+                  }
+                  allEdges = edges.get({ returnType: "Object" });
+                  // adding nodes and edges to the graph
+                  data = {nodes: nodes, edges: edges};
+
+                  var options = {
+    "configure": {
+        "enabled": false
+    },
+    "edges": {
+        "color": {
+            "inherit": true
+        },
+        "smooth": {
+            "enabled": true,
+            "type": "dynamic"
+        }
+    },
+    "interaction": {
+        "dragNodes": true,
+        "hideEdgesOnDrag": false,
+        "hideNodesOnDrag": false
+    },
+    "physics": {
+        "enabled": true,
+        "stabilization": {
+            "enabled": true,
+            "fit": true,
+            "iterations": 1000,
+            "onlyDynamicEdges": false,
+            "updateInterval": 50
+        }
+    }
+};
+
+                  
+
+
+                  
+
+                  network = new vis.Network(container, data, options);
+
+                  
+
+                  
+
+                  
+
+
+                  
+
+                  return network;
+
+              }
+              drawGraph();
+        </script>
+    </body>
+</html>
