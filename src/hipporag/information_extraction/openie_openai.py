@@ -265,7 +265,7 @@ class OpenIE:
         total_prompt_tokens, total_completion_tokens, num_cache_hit = 0, 0, 0
 
         # 第二阶段：并行执行三元组抽取（依赖 NER 结果）
-        with ThreadPoolExecutor() as executor:
+        with ThreadPoolExecutor(max_workers=1) as executor:
             # Create triple extraction futures for each chunk
             # 为每个块创建三元组抽取任务
             re_futures = {

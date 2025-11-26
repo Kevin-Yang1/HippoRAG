@@ -1,4 +1,12 @@
+"""
+此模板用于 HotpotQA 数据集的 IRCoT (Interleaved Retrieval Chain-of-Thought) 任务。
+它包含一个单样本演示 (one-shot demo)，展示了如何通过多跳推理在多个文档中寻找答案。
+"""
+
 one_shot_ircot_demo_docs = (
+    # 单样本演示的文档集合。
+    # 包含多个维基百科段落，作为模型推理的上下文基础。
+    # 这些文档提供了回答后续问题所需的信息片段。
     """Wikipedia Title: Milk and Honey (album)\nMilk and Honey is an album by John Lennon and Yoko Ono released in 1984. Following the compilation "The John Lennon Collection", it is Lennon's eighth and final studio album, and the first posthumous release of new Lennon music, having been recorded in the last months of his life during and following the sessions for their 1980 album "Double Fantasy". It was assembled by Yoko Ono in association with the Geffen label.\n\n"""
     """Wikipedia Title: John Lennon Museum\nJohn Lennon Museum (ジョン・レノン・ミュージアム , Jon Renon Myūjiamu ) was a museum located inside the Saitama Super Arena in Chūō-ku, Saitama, Saitama Prefecture, Japan. It was established to preserve knowledge of John Lennon's life and musical career. It displayed Lennon's widow Yoko Ono's collection of his memorabilia as well as other displays. The museum opened on October 9, 2000, the 60th anniversary of Lennon’s birth, and closed on September 30, 2010, when its exhibit contract with Yoko Ono expired. A tour of the museum began with a welcoming message and short film narrated by Yoko Ono (in Japanese with English headphones available), and ended at an avant-garde styled "reflection room" full of chairs facing a slide show of moving words and images. After this room there was a gift shop with John Lennon memorabilia available.\n\n"""
     """Wikipedia Title: Walls and Bridges\nWalls and Bridges is the fifth studio album by English musician John Lennon. It was issued by Apple Records on 26 September 1974 in the United States and on 4 October in the United Kingdom. Written, recorded and released during his 18-month separation from Yoko Ono, the album captured Lennon in the midst of his "Lost Weekend". "Walls and Bridges" was an American "Billboard" number-one album and featured two hit singles, "Whatever Gets You thru the Night" and "#9 Dream". The first of these was Lennon's first number-one hit in the United States as a solo artist, and his only chart-topping single in either the US or Britain during his lifetime.\n\n"""
@@ -8,22 +16,33 @@ one_shot_ircot_demo_docs = (
 
 
 one_shot_ircot_demo = (
-    f'{one_shot_ircot_demo_docs}'
-    '\n\nQuestion: '
+    # 完整的单样本演示字符串。
+    # 组合了上面的文档集合、一个示例问题 (Question) 和对应的推理过程 (Thought)。
+    # 展示了模型应该如何根据文档一步步推理出答案。
+    f"{one_shot_ircot_demo_docs}"
+    "\n\nQuestion: "
     f"Nobody Loves You was written by John Lennon and released on what album that was issued by Apple Records, and was written, recorded, and released during his 18 month separation from Yoko Ono?"
-    '\nThought: '
+    "\nThought: "
     f"The album issued by Apple Records, and written, recorded, and released during John Lennon's 18 month separation from Yoko Ono is Walls and Bridges. Nobody Loves You was written by John Lennon on Walls and Bridges album. So the answer is: Walls and Bridges."
-    '\n\n'
+    "\n\n"
 )
 
 ircot_system = (
+    # 系统提示词 (System Prompt)。
+    # 定义了助手的角色（智能助手，擅长多跳推理）。
+    # 说明了任务目标：根据文档回答问题，并生成推理步骤。
+    # 强调了每次只生成当前步骤的 Thought，而不是一次性生成所有。
+    # 最后附上了单样本演示作为参考。
     'You serve as an intelligent assistant, adept at facilitating users through complex, multi-hop reasoning across multiple documents. This task is illustrated through demonstrations, each consisting of a document set paired with a relevant question and its multi-hop reasoning thoughts. Your task is to generate one thought for current step, DON\'T generate the whole thoughts at once! If you reach what you believe to be the final step, start with "So the answer is:".'
-    '\n\n'
-    f'{one_shot_ircot_demo}'
+    "\n\n"
+    f"{one_shot_ircot_demo}"
 )
 
 
 prompt_template = [
+    # 最终的提示词模板结构（对话历史格式）。
+    # 包含系统消息和用户消息。
+    # ${prompt_user} 是一个占位符，将在运行时被实际的用户输入替换。
     {"role": "system", "content": ircot_system},
-    {"role": "user", "content": "${prompt_user}"}
+    {"role": "user", "content": "${prompt_user}"},
 ]

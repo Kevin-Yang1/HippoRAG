@@ -1,0 +1,26 @@
+{
+    "id": "chatcmpl-0f2f0e3494a9496980cda18966daef74",
+    "object": "chat.completion",
+    "created": 1764053763,
+    "model": "meta-llama/Llama-3.1-8B-Instruct",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "你好！我是一台人工智能助手。我的名字叫“助手”，我主要负责帮助用户回答问题、提供信息和进行对话。我拥有庞大的知识库，可以提供关于各种主题的信息和数据，我也可以进行语音或文本的互动。",
+                "tool_calls": []
+            },
+            "logprobs": null,
+            "finish_reason": "stop",
+            "stop_reason": null
+        }
+    ],
+    "usage": {
+        "prompt_tokens": 60,
+        "total_tokens": 123,
+        "completion_tokens": 63,
+        "prompt_tokens_details": null
+    },
+    "prompt_logprobs": null
+}
