@@ -2,6 +2,22 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: main.py (2wikimultihopqa)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--dataset", "2wikimultihopqa",
+                "--llm_name", "meta-llama/Llama-3.1-8B-Instruct",
+                "--llm_base_url", "http://222.20.98.85:6578/v1",
+                "--openie_mode", "online"
+            ],
+            "env": {
+                "OPENAI_API_KEY": "EMPTY"
+            }
+        },
+        {
             "name": "Python: demo_local.py (with NVIDIA libs)",
             "type": "debugpy",
             "request": "launch",

@@ -278,6 +278,7 @@ class HippoRAG:
         all_openie_info, chunk_keys_to_process = self.load_existing_openie(
             chunk_to_rows.keys()
         )  # 这里的输入为所有的哈希IDs
+
         new_openie_rows = {k: chunk_to_rows[k] for k in chunk_keys_to_process}
 
         # 3. 对新文档块执行 OpenIE（命名实体识别 + 三元组抽取）
@@ -1441,24 +1442,26 @@ class HippoRAG:
 
     def prepare_retrieval_objects(self):
         """
-        Prepares various in-memory objects and attributes necessary for fast retrieval processes, such as embedding data and graph relationships, ensuring consistency
-        and alignment with the underlying graph structure.
+        准备快速检索所需的各种内存对象和属性。
+        这包括加载嵌入数据、建立图关系映射，并确保内存中的数据结构与底层图结构的一致性。
         """
 
         logger.info("Preparing for fast retrieval.")
 
         logger.info("Loading keys.")
+        # 初始化查询到嵌入的缓存字典，分为 'triple' (事实/三元组视角) 和 'passage' (段落视角)
         self.query_to_embedding: Dict = {"triple": {}, "passage": {}}
 
+        # 从嵌入存储中加载所有实体、段落和事实的键（ID）
         self.entity_node_keys: List = list(
             self.entity_embedding_store.get_all_ids()
-        )  # a list of phrase node keys
+        )  # 短语/实体节点键列表
         self.passage_node_keys: List = list(
             self.chunk_embedding_store.get_all_ids()
-        )  # a list of passage node keys
+        )  # 段落节点键列表
         self.fact_node_keys: List = list(self.fact_embedding_store.get_all_ids())
 
-        # Check if the graph has the expected number of nodes
+        # 检查图中的节点数量是否符合预期（实体数 + 段落数）
         expected_node_count = len(self.entity_node_keys) + len(self.passage_node_keys)
         actual_node_count = self.graph.vcount()
 
@@ -1466,20 +1469,20 @@ class HippoRAG:
             logger.warning(
                 f"Graph node count mismatch: expected {expected_node_count}, got {actual_node_count}"
             )
-            # If the graph is empty but we have nodes, we need to add them
+            # 如果图是空的但我们有节点数据，则需要初始化图并添加节点
             if actual_node_count == 0 and expected_node_count > 0:
                 logger.info(f"Initializing graph with {expected_node_count} nodes")
                 self.add_new_nodes()
                 self.save_igraph()
 
-        # Create mapping from node name to vertex index
+        # 创建从节点名称（key）到图顶点索引（index）的映射
         try:
             igraph_name_to_idx = {
                 node["name"]: idx for idx, node in enumerate(self.graph.vs)
-            }  # from node key to the index in the backbone graph
+            }  # 映射: 节点键 -> 骨干图中的索引
             self.node_name_to_vertex_idx = igraph_name_to_idx
 
-            # Check if all entity and passage nodes are in the graph
+            # 检查是否所有实体和段落节点都存在于图中
             missing_entity_nodes = [
                 node_key
                 for node_key in self.entity_node_keys
@@ -1495,29 +1498,31 @@ class HippoRAG:
                 logger.warning(
                     f"Missing nodes in graph: {len(missing_entity_nodes)} entity nodes, {len(missing_passage_nodes)} passage nodes"
                 )
-                # If nodes are missing, rebuild the graph
+                # 如果有节点缺失，重建图节点并保存
                 self.add_new_nodes()
                 self.save_igraph()
-                # Update the mapping
+                # 更新映射
                 igraph_name_to_idx = {
                     node["name"]: idx for idx, node in enumerate(self.graph.vs)
                 }
                 self.node_name_to_vertex_idx = igraph_name_to_idx
 
+            # 创建实体和段落节点在图中对应的索引列表，用于后续快速访问
             self.entity_node_idxs = [
                 igraph_name_to_idx[node_key] for node_key in self.entity_node_keys
-            ]  # a list of backbone graph node index
+            ]  # 骨干图实体节点索引列表
             self.passage_node_idxs = [
                 igraph_name_to_idx[node_key] for node_key in self.passage_node_keys
-            ]  # a list of backbone passage node index
+            ]  # 骨干图段落节点索引列表
         except Exception as e:
             logger.error(f"Error creating node index mapping: {str(e)}")
-            # Initialize with empty lists if mapping fails
+            # 如果映射失败，初始化为空列表以防崩溃
             self.node_name_to_vertex_idx = {}
             self.entity_node_idxs = []
             self.passage_node_idxs = []
 
         logger.info("Loading embeddings.")
+        # 将所有实体和段落的嵌入加载到内存中的 numpy 数组，以便进行快速矩阵运算
         self.entity_embeddings = np.array(
             self.entity_embedding_store.get_embeddings(self.entity_node_keys)
         )
@@ -1529,14 +1534,17 @@ class HippoRAG:
             self.fact_embedding_store.get_embeddings(self.fact_node_keys)
         )
 
+        # 加载现有的 OpenIE 结果，用于构建三元组到文档的映射
         all_openie_info, chunk_keys_to_process = self.load_existing_openie([])
 
         self.proc_triples_to_docs = {}
 
+        # 构建处理后的三元组到文档 ID 的反向索引
         for doc in all_openie_info:
             triples = flatten_facts([doc["extracted_triples"]])
             for triple in triples:
                 if len(triple) == 3:
+                    # 对三元组文本进行标准化处理
                     proc_triple = tuple(text_processing(list(triple)))
                     self.proc_triples_to_docs[str(proc_triple)] = (
                         self.proc_triples_to_docs.get(str(proc_triple), set()).union(
@@ -1544,12 +1552,13 @@ class HippoRAG:
                         )
                     )
 
+        # 如果实体节点到段落 ID 的映射尚未初始化（例如首次运行或未从文件加载），则进行构建
         if self.ent_node_to_chunk_ids is None:
             ner_results_dict, triple_results_dict = reformat_openie_results(
                 all_openie_info
             )
 
-            # Check if the lengths match
+            # 检查数据长度一致性
             if not (
                 len(self.passage_node_keys)
                 == len(ner_results_dict)
@@ -1559,7 +1568,7 @@ class HippoRAG:
                     f"Length mismatch: passage_node_keys={len(self.passage_node_keys)}, ner_results_dict={len(ner_results_dict)}, triple_results_dict={len(triple_results_dict)}"
                 )
 
-                # If there are missing keys, create empty entries for them
+                # 如果存在缺失的键，为它们创建空的条目以保持对齐
                 for chunk_id in self.passage_node_keys:
                     if chunk_id not in ner_results_dict:
                         ner_results_dict[chunk_id] = NerRawOutput(
@@ -1573,7 +1582,7 @@ class HippoRAG:
                             chunk_id=chunk_id, response=None, metadata={}, triples=[]
                         )
 
-            # prepare data_store
+            # 准备数据存储：处理每个段落的三元组
             chunk_triples = [
                 [text_processing(t) for t in triple_results_dict[chunk_id].triples]
                 for chunk_id in self.passage_node_keys
@@ -1581,22 +1590,27 @@ class HippoRAG:
 
             self.node_to_node_stats = {}
             self.ent_node_to_chunk_ids = {}
+            # 添加事实边，这将填充 ent_node_to_chunk_ids 和 node_to_node_stats
             self.add_fact_edges(self.passage_node_keys, chunk_triples)
 
+        # 标记检索对象已准备就绪
         self.ready_to_retrieve = True
 
     def get_query_embeddings(self, queries: List[str] | List[QuerySolution]):
         """
-        Retrieves embeddings for given queries and updates the internal query-to-embedding mapping. The method determines whether each query
-        is already present in the `self.query_to_embedding` dictionary under the keys 'triple' and 'passage'. If a query is not present in
-        either, it is encoded into embeddings using the embedding model and stored.
+        获取给定查询的嵌入向量，并更新内部的查询到嵌入的映射缓存。
 
-        Args:
-            queries List[str] | List[QuerySolution]: A list of query strings or QuerySolution objects. Each query is checked for
-            its presence in the query-to-embedding mappings.
+        该方法会检查每个查询是否已经存在于 `self.query_to_embedding` 字典的 'triple'（事实检索用）
+        和 'passage'（段落检索用）键下。如果某个查询在任一映射中不存在，则使用嵌入模型对其进行编码并存储。
+        这确保了后续检索步骤可以直接使用缓存的向量，避免重复计算。
+
+        参数:
+            queries (List[str] | List[QuerySolution]): 查询字符串列表或 QuerySolution 对象列表。
+                如果是 QuerySolution 对象，将提取其 `question` 属性作为查询文本。
         """
 
         all_query_strings = []
+        # 遍历查询列表，筛选出尚未完全缓存嵌入的查询
         for query in queries:
             if isinstance(query, QuerySolution) and (
                 query.question not in self.query_to_embedding["triple"]
@@ -1610,16 +1624,20 @@ class HippoRAG:
                 all_query_strings.append(query)
 
         if len(all_query_strings) > 0:
-            # get all query embeddings
+            # 获取所有未缓存查询的嵌入向量
+
+            # 1. 编码用于事实检索（query_to_fact）的向量
             logger.info(f"Encoding {len(all_query_strings)} queries for query_to_fact.")
             query_embeddings_for_triple = self.embedding_model.batch_encode(
                 all_query_strings,
                 instruction=get_query_instruction("query_to_fact"),
                 norm=True,
             )
+            # 将结果存入 'triple' 缓存
             for query, embedding in zip(all_query_strings, query_embeddings_for_triple):
                 self.query_to_embedding["triple"][query] = embedding
 
+            # 2. 编码用于段落检索（query_to_passage）的向量
             logger.info(
                 f"Encoding {len(all_query_strings)} queries for query_to_passage."
             )
@@ -1628,6 +1646,7 @@ class HippoRAG:
                 instruction=get_query_instruction("query_to_passage"),
                 norm=True,
             )
+            # 将结果存入 'passage' 缓存
             for query, embedding in zip(
                 all_query_strings, query_embeddings_for_passage
             ):
@@ -1635,44 +1654,48 @@ class HippoRAG:
 
     def get_fact_scores(self, query: str) -> np.ndarray:
         """
-        Retrieves and computes normalized similarity scores between the given query and pre-stored fact embeddings.
+        检索并计算给定查询与预存储的事实嵌入向量之间的归一化相似度分数。
 
-        Parameters:
-        query : str
-            The input query text for which similarity scores with fact embeddings
-            need to be computed.
+        该方法首先尝试获取查询的嵌入向量（如果尚未缓存则进行编码），然后计算其与所有事实嵌入向量的点积（相似度），
+        最后对分数进行归一化处理。
 
-        Returns:
-        numpy.ndarray
-            A normalized array of similarity scores between the query and fact
-            embeddings. The shape of the array is determined by the number of
-            facts.
+        参数:
+            query (str): 输入的查询文本，用于计算与事实嵌入的相似度分数。
 
-        Raises:
-        KeyError
-            If no embedding is found for the provided query in the stored query
-            embeddings dictionary.
+        返回:
+            numpy.ndarray: 查询与事实嵌入之间的归一化相似度分数数组。
+                数组的形状由事实的数量决定。如果发生错误或没有事实，则返回空数组。
         """
+        # 尝试从缓存中获取查询的“三元组/事实”视角的嵌入向量
         query_embedding = self.query_to_embedding["triple"].get(query, None)
+
+        # 如果缓存中没有，则使用嵌入模型对查询进行编码
         if query_embedding is None:
             query_embedding = self.embedding_model.batch_encode(
                 query, instruction=get_query_instruction("query_to_fact"), norm=True
             )
 
-        # Check if there are any facts
+        # 检查是否存在任何事实嵌入
         if len(self.fact_embeddings) == 0:
             logger.warning("No facts available for scoring. Returning empty array.")
             return np.array([])
 
         try:
+            # 计算事实嵌入矩阵与查询嵌入向量的点积，得到相似度分数， # 注意：如果向量已归一化（L2范数为1），点积在数学上等价于余弦相似度，且计算效率更高
+            # self.fact_embeddings shape: (num_facts, embedding_dim)
+            # query_embedding.T shape: (embedding_dim, 1) or (embedding_dim,)
             query_fact_scores = np.dot(
                 self.fact_embeddings, query_embedding.T
-            )  # shape: (#facts, )
+            )  # 结果形状: (#facts, )
+
+            # 如果结果是二维数组（例如列向量），则压缩为一维数组
             query_fact_scores = (
                 np.squeeze(query_fact_scores)
                 if query_fact_scores.ndim == 2
                 else query_fact_scores
             )
+
+            # 对分数进行最小-最大归一化，使其范围在 [0, 1] 之间
             query_fact_scores = min_max_normalize(query_fact_scores)
             return query_fact_scores
         except Exception as e:
@@ -1681,43 +1704,49 @@ class HippoRAG:
 
     def dense_passage_retrieval(self, query: str) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Conduct dense passage retrieval to find relevant documents for a query.
+        执行稠密段落检索（Dense Passage Retrieval），以查找与查询相关的文档。
 
-        This function processes a given query using a pre-trained embedding model
-        to generate query embeddings. The similarity scores between the query
-        embedding and passage embeddings are computed using dot product, followed
-        by score normalization. Finally, the function ranks the documents based
-        on their similarity scores and returns the ranked document identifiers
-        and their scores.
+        该函数使用预训练的嵌入模型处理给定的查询，生成查询嵌入向量。
+        然后计算查询嵌入与所有段落嵌入之间的点积作为相似度分数，并进行归一化处理。
+        最后，根据相似度分数对文档进行排序，并返回排序后的文档标识符及其对应的分数。
 
-        Parameters
-        ----------
-        query : str
-            The input query for which relevant passages should be retrieved.
+        参数:
+            query (str): 输入的查询文本，用于检索相关的段落。
 
-        Returns
-        -------
-        tuple : Tuple[np.ndarray, np.ndarray]
-            A tuple containing two elements:
-            - A list of sorted document identifiers based on their relevance scores.
-            - A numpy array of the normalized similarity scores for the corresponding
-              documents.
+        返回:
+            Tuple[np.ndarray, np.ndarray]: 包含两个元素的元组：
+                - 按相关性分数降序排列的文档标识符（索引）数组。
+                - 对应文档的归一化相似度分数数组。
         """
+        # 尝试从缓存中获取查询的“段落”视角的嵌入向量
         query_embedding = self.query_to_embedding["passage"].get(query, None)
+
+        # 如果缓存中没有，则使用嵌入模型对查询进行编码
         if query_embedding is None:
             query_embedding = self.embedding_model.batch_encode(
                 query, instruction=get_query_instruction("query_to_passage"), norm=True
             )
+
+        # 计算段落嵌入矩阵与查询嵌入向量的点积，得到相似度分数
+        # self.passage_embeddings shape: (num_passages, embedding_dim)
         query_doc_scores = np.dot(self.passage_embeddings, query_embedding.T)
+
+        # 如果结果是二维数组，则压缩为一维数组
         query_doc_scores = (
             np.squeeze(query_doc_scores)
             if query_doc_scores.ndim == 2
             else query_doc_scores
         )
+
+        # 对分数进行最小-最大归一化
         query_doc_scores = min_max_normalize(query_doc_scores)
 
+        # 对文档分数进行排序（降序），获取排序后的索引
         sorted_doc_ids = np.argsort(query_doc_scores)[::-1]
+
+        # 获取对应的排序后的分数
         sorted_doc_scores = query_doc_scores[sorted_doc_ids.tolist()]
+
         return sorted_doc_ids, sorted_doc_scores
 
     def get_top_k_weights(
@@ -1727,22 +1756,21 @@ class HippoRAG:
         linking_score_map: Dict[str, float],
     ) -> Tuple[np.ndarray, Dict[str, float]]:
         """
-        This function filters the all_phrase_weights to retain only the weights for the
-        top-ranked phrases in terms of the linking_score_map. It also filters linking scores
-        to retain only the top `link_top_k` ranked nodes. Non-selected phrases in phrase
-        weights are reset to a weight of 0.0.
+        过滤短语权重，仅保留 `linking_score_map` 中排名前 `link_top_k` 的短语的权重。
 
-        Args:
-            link_top_k (int): Number of top-ranked nodes to retain in the linking score map.
-            all_phrase_weights (np.ndarray): An array representing the phrase weights, indexed
-                by phrase ID.
-            linking_score_map (Dict[str, float]): A mapping of phrase content to its linking
-                score, sorted in descending order of scores.
+        该函数根据 `linking_score_map` 中的分数对短语进行排序，并保留前 `link_top_k` 个短语。
+        对于未被选中的短语，其在 `all_phrase_weights` 中的权重将被重置为 0.0。
+        这有助于在图搜索中聚焦于最相关的实体节点。
 
-        Returns:
-            Tuple[np.ndarray, Dict[str, float]]: A tuple containing the filtered array
-            of all_phrase_weights with unselected weights set to 0.0, and the filtered
-            linking_score_map containing only the top `link_top_k` phrases.
+        参数:
+            link_top_k (int): 在链接分数映射中保留的排名靠前的节点数量。
+            all_phrase_weights (np.ndarray): 表示短语权重的数组，通过短语 ID 索引。
+            linking_score_map (Dict[str, float]): 短语内容到其链接分数的映射，通常按分数降序排列。
+
+        返回:
+            Tuple[np.ndarray, Dict[str, float]]: 一个元组，包含：
+                - 过滤后的 `all_phrase_weights` 数组，其中未选中短语的权重被设为 0.0。
+                - 仅包含前 `link_top_k` 个短语的过滤后的 `linking_score_map`。
         """
         # choose top ranked nodes in linking_score_map
         linking_score_map = dict(
@@ -1779,42 +1807,35 @@ class HippoRAG:
         passage_node_weight: float = 0.05,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Computes document scores based on fact-based similarity and relevance using personalized
-        PageRank (PPR) and dense retrieval models. This function combines the signal from the relevant
-        facts identified with passage similarity and graph-based search for enhanced result ranking.
+        结合事实实体和稠密检索结果，在图上执行搜索（Personalized PageRank）。
 
-        Parameters:
-            query (str): The input query string for which similarity and relevance computations
-                need to be performed.
-            link_top_k (int): The number of top phrases to include from the linking score map for
-                downstream processing.
-            query_fact_scores (np.ndarray): An array of scores representing fact-query similarity
-                for each of the provided facts.
-            top_k_facts (List[Tuple]): A list of top-ranked facts, where each fact is represented
-                as a tuple of its subject, predicate, and object.
-            top_k_fact_indices (List[str]): Corresponding indices or identifiers for the top-ranked
-                facts in the query_fact_scores array.
-            passage_node_weight (float): Default weight to scale passage scores in the graph.
+        该函数利用个性化 PageRank (PPR) 和稠密检索模型，基于事实的相似度和相关性计算文档分数。
+        它将识别出的相关事实（通过短语节点）的信号与段落相似度（通过段落节点）和图结构搜索相结合，以增强结果排序。
 
-        Returns:
-            Tuple[np.ndarray, np.ndarray]: A tuple containing two arrays:
-                - The first array corresponds to document IDs sorted based on their scores.
-                - The second array consists of the PPR scores associated with the sorted document IDs.
+        参数:
+            query (str): 输入查询字符串，用于执行相似度和相关性计算。
+            link_top_k (int): 从链接分数映射中保留的顶部短语数量，用于后续处理。
+            query_fact_scores (np.ndarray): 表示每个提供的事实与查询之间相似度的分数数组。
+            top_k_facts (List[Tuple]): 排名靠前的事实列表，每个事实表示为 (主语, 谓语, 宾语) 的元组。
+            top_k_fact_indices (List[str]): query_fact_scores 数组中对应排名靠前事实的索引或标识符。
+            passage_node_weight (float): 用于缩放图中段落分数的默认权重。
+
+        返回:
+            Tuple[np.ndarray, np.ndarray]: 包含两个数组的元组：
+                - 第一个数组是根据分数排序的文档 ID。
+                - 第二个数组是与排序后的文档 ID 对应的 PPR 分数。
         """
 
-        # Assigning phrase weights based on selected facts from previous steps.
-        linking_score_map = (
-            {}
-        )  # from phrase to the average scores of the facts that contain the phrase
-        phrase_scores = (
-            {}
-        )  # store all fact scores for each phrase regardless of whether they exist in the knowledge graph or not
+        # 根据前一步选出的事实分配短语权重。
+        linking_score_map = {}  # 映射短语到包含该短语的事实的平均分数
+        phrase_scores = {}  # 存储每个短语的所有事实分数，无论它们是否存在于知识图中
         phrase_weights = np.zeros(len(self.graph.vs["name"]))
         passage_weights = np.zeros(len(self.graph.vs["name"]))
         number_of_occurs = np.zeros(len(self.graph.vs["name"]))
 
         phrases_and_ids = set()
 
+        # 遍历排名靠前的事实，计算短语节点的初始权重
         for rank, f in enumerate(top_k_facts):
             subject_phrase = f[0].lower()
             predicate_phrase = f[1].lower()
@@ -1825,6 +1846,7 @@ class HippoRAG:
                 else query_fact_scores
             )
 
+            # 关注主语和宾语短语
             for phrase in [subject_phrase, object_phrase]:
                 phrase_key = compute_mdhash_id(content=phrase, prefix="entity-")
                 phrase_id = self.node_name_to_vertex_idx.get(phrase_key, None)
@@ -1832,6 +1854,7 @@ class HippoRAG:
                 if phrase_id is not None:
                     weighted_fact_score = fact_score
 
+                    # 如果短语连接到多个段落，则降低其权重（类似于 IDF 的思想）
                     if len(self.ent_node_to_chunk_ids.get(phrase_key, set())) > 0:
                         weighted_fact_score /= len(
                             self.ent_node_to_chunk_ids[phrase_key]
@@ -1842,6 +1865,7 @@ class HippoRAG:
 
                 phrases_and_ids.add((phrase, phrase_id))
 
+        # 对短语权重进行平均
         phrase_weights /= number_of_occurs
 
         for phrase, phrase_id in phrases_and_ids:
@@ -1850,19 +1874,21 @@ class HippoRAG:
 
             phrase_scores[phrase].append(phrase_weights[phrase_id])
 
-        # calculate average fact score for each phrase
+        # 计算每个短语的平均事实分数，用于 linking_score_map
         for phrase, scores in phrase_scores.items():
             linking_score_map[phrase] = float(np.mean(scores))
 
+        # 如果指定了 link_top_k，则只保留分数最高的 k 个短语节点
         if link_top_k:
             phrase_weights, linking_score_map = self.get_top_k_weights(
                 link_top_k, phrase_weights, linking_score_map
-            )  # at this stage, the length of linking_scope_map is determined by link_top_k
+            )  # 在此阶段，linking_score_map 的长度由 link_top_k 决定
 
-        # Get passage scores according to chosen dense retrieval model
+        # 获取基于稠密检索模型（DPR）的段落分数
         dpr_sorted_doc_ids, dpr_sorted_doc_scores = self.dense_passage_retrieval(query)
         normalized_dpr_sorted_scores = min_max_normalize(dpr_sorted_doc_scores)
 
+        # 将 DPR 分数分配给段落节点
         for i, dpr_sorted_doc_id in enumerate(dpr_sorted_doc_ids.tolist()):
             passage_node_key = self.passage_node_keys[dpr_sorted_doc_id]
             passage_dpr_score = normalized_dpr_sorted_scores[i]
@@ -1875,10 +1901,10 @@ class HippoRAG:
                 passage_dpr_score * passage_node_weight
             )
 
-        # Combining phrase and passage scores into one array for PPR
+        # 将短语权重和段落权重合并为一个数组，作为 PPR 的重置概率（reset probability）
         node_weights = phrase_weights + passage_weights
 
-        # Recording top 30 facts in linking_score_map
+        # 记录 linking_score_map 中的前 30 个事实（用于调试或日志）
         if len(linking_score_map) > 30:
             linking_score_map = dict(
                 sorted(linking_score_map.items(), key=lambda x: x[1], reverse=True)[:30]
@@ -1888,7 +1914,7 @@ class HippoRAG:
             sum(node_weights) > 0
         ), f"No phrases found in the graph for the given facts: {top_k_facts}"
 
-        # Running PPR algorithm based on the passage and phrase weights previously assigned
+        # 基于之前分配的段落和短语权重运行 PPR 算法
         ppr_start = time.time()
         ppr_sorted_doc_ids, ppr_sorted_doc_scores = self.run_ppr(
             node_weights, damping=self.global_config.damping
@@ -1907,47 +1933,56 @@ class HippoRAG:
         self, query: str, query_fact_scores: np.ndarray
     ) -> Tuple[List[int], List[Tuple], dict]:
         """
+        对初步检索到的事实进行重排序（Reranking），以筛选出最相关的事实。
 
-        Args:
+        该函数首先根据初步的相似度分数（`query_fact_scores`）选出候选事实。
+        然后，它调用 `rerank_filter` 方法（通常基于更强大的模型或逻辑，如 DSPy）对这些候选事实进行进一步的过滤和排序。
+        这有助于提高后续图搜索阶段所使用事实的质量。
 
-        Returns:
-            top_k_fact_indicies:
-            top_k_facts:
-            rerank_log (dict): {'facts_before_rerank': candidate_facts, 'facts_after_rerank': top_k_facts}
-                - candidate_facts (list): list of link_top_k facts (each fact is a relation triple in tuple data type).
-                - top_k_facts:
+        参数:
+            query (str): 用于重排序的查询字符串。
+            query_fact_scores (np.ndarray): 包含所有事实与查询之间初步相似度分数的数组。
 
-
+        返回:
+            Tuple[List[int], List[Tuple], dict]: 一个元组，包含：
+                - top_k_fact_indices (List[int]): 重排序后选出的前 k 个事实在原始事实列表中的索引。
+                - top_k_facts (List[Tuple]): 重排序后选出的前 k 个事实本身（三元组形式）。
+                - rerank_log (dict): 包含重排序过程信息的字典，如重排序前后的事实列表。
+                    - 'facts_before_rerank': 初步筛选出的候选事实列表。
+                    - 'facts_after_rerank': 最终选出的事实列表。
         """
-        # load args
+        # 加载配置参数：需要保留的链接（事实）数量
         link_top_k: int = self.global_config.linking_top_k
 
-        # Check if there are any facts to rerank
+        # 检查是否有事实可供重排序
         if len(query_fact_scores) == 0 or len(self.fact_node_keys) == 0:
             logger.warning("No facts available for reranking. Returning empty lists.")
             return [], [], {"facts_before_rerank": [], "facts_after_rerank": []}
 
         try:
-            # Get the top k facts by score
+            # 根据初步分数获取前 k 个事实的索引
             if len(query_fact_scores) <= link_top_k:
-                # If we have fewer facts than requested, use all of them
+                # 如果事实总数少于请求的数量，则使用所有事实
                 candidate_fact_indices = np.argsort(query_fact_scores)[::-1].tolist()
             else:
-                # Otherwise get the top k
+                # 否则，仅获取分数最高的 k 个事实
                 candidate_fact_indices = np.argsort(query_fact_scores)[-link_top_k:][
                     ::-1
                 ].tolist()
 
-            # Get the actual fact IDs
+            # 获取实际的事实 ID
             real_candidate_fact_ids = [
                 self.fact_node_keys[idx] for idx in candidate_fact_indices
             ]
+            # 从嵌入存储中获取事实的详细内容
             fact_row_dict = self.fact_embedding_store.get_rows(real_candidate_fact_ids)
+            # 解析事实内容（通常存储为字符串形式的三元组）
             candidate_facts = [
                 eval(fact_row_dict[id]["content"]) for id in real_candidate_fact_ids
             ]
 
-            # Rerank the facts
+            # 对候选事实进行重排序（例如使用 LLM 或 DSPy 模块） 选前link_top_k个事实很可能会选中不相关事实
+            # TODO：考虑根据计算的向量距离来决定选择前多少个事实
             top_k_fact_indices, top_k_facts, reranker_dict = self.rerank_filter(
                 query,
                 candidate_facts,
@@ -1955,6 +1990,7 @@ class HippoRAG:
                 len_after_rerank=link_top_k,
             )
 
+            # 记录重排序前后的事实，用于调试或分析
             rerank_log = {
                 "facts_before_rerank": candidate_facts,
                 "facts_after_rerank": top_k_facts,

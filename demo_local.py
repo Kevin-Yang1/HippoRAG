@@ -6,6 +6,10 @@ import logging
 
 from src.hipporag import HippoRAG
 
+# openai 的 Python SDK 强制要求提供 api_key。即使连接的是本地部署的 vLLM（它通常不需要真实的 OpenAI Key），SDK 仍然会检查这个参数是否存在。
+os.environ["OPENAI_API_KEY"] = "EMPTY"
+
+
 def main():
 
     # Prepare datasets and evaluation
@@ -18,19 +22,22 @@ def main():
         "When the slipper fit perfectly, Cinderella was reunited with the prince.",
         "Erik Hort's birthplace is Montebello.",
         "Marina is bom in Minsk.",
-        "Montebello is a part of Rockland County."
+        "Montebello is a part of Rockland County.",
     ]
 
-    save_dir = 'outputs/demo_llama'  # Define save directory for HippoRAG objects (each LLM/Embedding model combination will create a new subdirectory)
-    llm_model_name = 'meta-llama/Llama-3.1-8B-Instruct'  # Any OpenAI model name
+    save_dir = "outputs/demo_llama"  # Define save directory for HippoRAG objects (each LLM/Embedding model combination will create a new subdirectory)
+    llm_model_name = "meta-llama/Llama-3.1-8B-Instruct"  # Any OpenAI model name
     # embedding_model_name = 'GritLM/GritLM-7B'  # Embedding model name (NV-Embed, GritLM or Contriever for now)
-    embedding_model_name = 'facebook/contriever'  # Embedding model name (NV-Embed, GritLM or Contriever for now)
+    embedding_model_name = "facebook/contriever"  # Embedding model name (NV-Embed, GritLM or Contriever for now)
 
     # Startup a HippoRAG instance
-    hipporag = HippoRAG(save_dir=save_dir,
-                        llm_model_name=llm_model_name,
-                        embedding_model_name=embedding_model_name,
-                        llm_base_url="http://localhost:6578/v1")
+    hipporag = HippoRAG(
+        save_dir=save_dir,
+        llm_model_name=llm_model_name,
+        embedding_model_name=embedding_model_name,
+        llm_base_url="http://localhost:6578/v1",
+        # llm_base_url="http://222.20.98.85:6578/v1",
+    )
 
     # Run indexing
     hipporag.index(docs=docs)
@@ -39,28 +46,27 @@ def main():
     queries = [
         "What is George Rankin's occupation?",
         "How did Cinderella reach her happy ending?",
-        "What county is Erik Hort's birthplace a part of?"
+        "What county is Erik Hort's birthplace a part of?",
     ]
 
     # For Evaluation
-    answers = [
-        ["Politician"],
-        ["By going to the ball."],
-        ["Rockland County"]
-    ]
+    answers = [["Politician"], ["By going to the ball."], ["Rockland County"]]
 
     gold_docs = [
         ["George Rankin is a politician."],
-        ["Cinderella attended the royal ball.",
-         "The prince used the lost glass slipper to search the kingdom.",
-         "When the slipper fit perfectly, Cinderella was reunited with the prince."],
-        ["Erik Hort's birthplace is Montebello.",
-         "Montebello is a part of Rockland County."]
+        [
+            "Cinderella attended the royal ball.",
+            "The prince used the lost glass slipper to search the kingdom.",
+            "When the slipper fit perfectly, Cinderella was reunited with the prince.",
+        ],
+        [
+            "Erik Hort's birthplace is Montebello.",
+            "Montebello is a part of Rockland County.",
+        ],
     ]
 
-    print(hipporag.rag_qa(queries=queries,
-                                  gold_docs=gold_docs,
-                                  gold_answers=answers))
+    print(hipporag.rag_qa(queries=queries, gold_docs=gold_docs, gold_answers=answers))
+
 
 if __name__ == "__main__":
     main()
