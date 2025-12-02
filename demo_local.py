@@ -35,8 +35,8 @@ def main():
         save_dir=save_dir,
         llm_model_name=llm_model_name,
         embedding_model_name=embedding_model_name,
-        llm_base_url="http://localhost:6578/v1",
-        # llm_base_url="http://222.20.98.85:6578/v1",
+        # llm_base_url="http://localhost:6578/v1",
+        llm_base_url="http://222.20.98.85:6578/v1",
     )
 
     # Run indexing

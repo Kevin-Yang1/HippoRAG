@@ -175,13 +175,22 @@ def main():
     parser.add_argument(
         "--save_dir", type=str, default="outputs", help="Save directory"
     )
+    parser.add_argument(
+        "--index_dir",
+        type=str,
+        default=None,
+        help="Directory containing the pre-built index",
+    )
     args = parser.parse_args()
 
     dataset_name = args.dataset
     save_dir = args.save_dir
     llm_base_url = args.llm_base_url
     llm_name = args.llm_name
-    if save_dir == "outputs":
+
+    if args.index_dir:
+        save_dir = args.index_dir
+    elif save_dir == "outputs":
         save_dir = save_dir + "/" + dataset_name
     else:
         save_dir = save_dir + "_" + dataset_name

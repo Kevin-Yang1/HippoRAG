@@ -192,30 +192,35 @@ class HippoRAG:
 
     def initialize_graph(self):
         """
-        Initializes a graph using a Pickle file if available or creates a new graph.
+        初始化图结构：尝试从 Pickle 文件加载现有图，或者创建一个新图。
 
-        The function attempts to load a pre-existing graph stored in a Pickle file. If the file
-        is not present or the graph needs to be created from scratch, it initializes a new directed
-        or undirected graph based on the global configuration. If the graph is loaded successfully
-        from the file, pertinent information about the graph (number of nodes and edges) is logged.
+        该函数首先检查是否存在预先保存的图文件（Pickle 格式）。
+        如果文件存在且未配置强制从头开始索引（force_index_from_scratch），则尝试加载该图。
+        如果文件不存在或需要重新创建，则根据全局配置初始化一个新的有向或无向图。
+        如果成功加载了图，会记录图的节点数和边数等相关信息。
 
-        Returns:
-            ig.Graph: A pre-loaded or newly initialized graph.
+        返回:
+            ig.Graph: 一个预加载的或新初始化的 igraph 图对象。
 
         Raises:
             None
         """
+        # 定义图文件的保存路径
         self._graph_pickle_filename = os.path.join(self.working_dir, f"graph.pickle")
 
         preloaded_graph = None
 
+        # 如果没有强制要求从头开始构建索引，则尝试加载现有的图文件
         if not self.global_config.force_index_from_scratch:
             if os.path.exists(self._graph_pickle_filename):
                 preloaded_graph = ig.Graph.Read_Pickle(self._graph_pickle_filename)
 
+        # 如果没有加载到图（文件不存在或强制重构），则创建一个新图
         if preloaded_graph is None:
+            # 根据配置决定创建有向图还是无向图
             return ig.Graph(directed=self.global_config.is_directed_graph)
         else:
+            # 如果成功加载，记录日志信息
             logger.info(
                 f"Loaded graph from {self._graph_pickle_filename} with {preloaded_graph.vcount()} nodes, {preloaded_graph.ecount()} edges"
             )
@@ -327,14 +332,15 @@ class HippoRAG:
 
         logger.info(f"Constructing Graph")
 
-        self.node_to_node_stats = {}
-        self.ent_node_to_chunk_ids = {}
+        self.node_to_node_stats = {}  # 用于记录实体与实体之间的共现次数
+        self.ent_node_to_chunk_ids = {}  # 记录了每个实体出现在哪些段落（Chunk）中
 
         # 8. 构建图结构
         # 添加事实边（实体之间的关系）
         self.add_fact_edges(chunk_ids, chunk_triples)
         # 添加段落边（段落与实体之间的关系）
         num_new_chunks = self.add_passage_edges(chunk_ids, chunk_triple_entities)
+        # 到这里只是整理了图需要更新的信息，还没有真正更新图结构
 
         # 9. 如果有新文档块，则更新图并保存
         if num_new_chunks > 0:
@@ -507,7 +513,7 @@ class HippoRAG:
             # 1. 获取查询与事实的相似度得分
             query_fact_scores = self.get_fact_scores(query)
 
-            # 2. 对事实进行重排序，筛选出 Top-K 相关事实
+            # 2. 对事实进行重排序，筛选出 Top-K 相关事实  Top-K 事实已经过大模型过滤
             top_k_fact_indices, top_k_facts, rerank_log = self.rerank_facts(
                 query, query_fact_scores
             )
@@ -565,7 +571,7 @@ class HippoRAG:
 
         # 如果提供了标准文档，执行检索评估
         if gold_docs is not None:
-            k_list = [1, 2, 5, 10, 20, 30, 50, 100, 150, 200]
+            k_list = [1, 2, 3, 4, 5, 10, 20, 30, 50, 100, 150, 200]
             overall_retrieval_result, example_retrieval_results = (
                 retrieval_recall_evaluator.calculate_metric_scores(
                     gold_docs=gold_docs,
@@ -627,7 +633,7 @@ class HippoRAG:
         # 检查输入是否为原始字符串查询。如果是，则先执行检索。
         if not isinstance(queries[0], QuerySolution):
             if gold_docs is not None:
-                # 如果提供了标准文档，执行带评估的检索
+                # 如果提供了标准文档，执行带评估的检索。这里的检索返回一个 `QuerySolution` 对象列表，每个对象包含对应查询的检索文档及其得分。
                 queries, overall_retrieval_result = self.retrieve(
                     queries=queries, gold_docs=gold_docs
                 )
@@ -885,60 +891,67 @@ class HippoRAG:
         self, queries: List[QuerySolution]
     ) -> Tuple[List[QuerySolution], List[str], List[Dict]]:
         """
-        Executes question-answering (QA) inference using a provided set of query solutions and a language model.
+        使用提供的查询解决方案集和语言模型执行问答 (QA) 推理。
 
-        Parameters:
-            queries: List[QuerySolution]
-                A list of QuerySolution objects that contain the user queries, retrieved documents, and other related information.
+        该方法根据检索到的文档构建提示词，调用 LLM 生成答案，并解析结果。
 
-        Returns:
-            Tuple[List[QuerySolution], List[str], List[Dict]]
-                A tuple containing:
-                - A list of updated QuerySolution objects with the predicted answers embedded in them.
-                - A list of raw response messages from the language model.
-                - A list of metadata dictionaries associated with the results.
+        参数:
+            queries (List[QuerySolution]): QuerySolution 对象列表，包含用户查询、检索到的文档以及其他相关信息。
+
+        返回:
+            Tuple[List[QuerySolution], List[str], List[Dict]]: 一个包含以下内容的元组：
+                - 更新后的 QuerySolution 对象列表，其中嵌入了预测的答案。
+                - 来自语言模型的原始响应消息列表。
+                - 与结果关联的元数据字典列表。
         """
-        # Running inference for QA
+        # 运行 QA 推理
         all_qa_messages = []
 
+        # 1. 收集并构建 QA 提示词
         for query_solution in tqdm(queries, desc="Collecting QA prompts"):
 
-            # obtain the retrieved docs
+            # 获取检索到的文档（截取 Top-K）
             retrieved_passages = query_solution.docs[: self.global_config.qa_top_k]
 
+            # 构建用户提示部分：拼接文档标题和内容，最后加上问题
             prompt_user = ""
             for passage in retrieved_passages:
                 prompt_user += f"Wikipedia Title: {passage}\n\n"
             prompt_user += "Question: " + query_solution.question + "\nThought: "
 
+            # 检查当前数据集是否有特定的提示模板
             if self.prompt_template_manager.is_template_name_valid(
                 name=f"rag_qa_{self.global_config.dataset}"
             ):
-                # find the corresponding prompt for this dataset
+                # 找到该数据集对应的提示模板名称
                 prompt_dataset_name = self.global_config.dataset
             else:
-                # the dataset does not have a customized prompt template yet
+                # 如果该数据集没有定制的提示模板，默认使用 MUSIQUE 的模板
                 logger.debug(
                     f"rag_qa_{self.global_config.dataset} does not have a customized prompt template. Using MUSIQUE's prompt template instead."
                 )
                 prompt_dataset_name = "musique"
+
+            # 渲染最终的提示消息
             all_qa_messages.append(
                 self.prompt_template_manager.render(
                     name=f"rag_qa_{prompt_dataset_name}", prompt_user=prompt_user
                 )
             )
 
+        # 2. 调用 LLM 进行批量推理
         all_qa_results = [
             self.llm_model.infer(qa_messages)
             for qa_messages in tqdm(all_qa_messages, desc="QA Reading")
         ]
 
+        # 解包推理结果：响应消息、元数据、缓存命中情况
         all_response_message, all_metadata, all_cache_hit = zip(*all_qa_results)
         all_response_message, all_metadata = list(all_response_message), list(
             all_metadata
         )
 
-        # Process responses and extract predicted answers.
+        # 3. 处理响应并提取预测答案
         queries_solutions = []
         for query_solution_idx, query_solution in tqdm(
             enumerate(queries), desc="Extraction Answers from LLM Response"
@@ -959,24 +972,20 @@ class HippoRAG:
 
     def add_fact_edges(self, chunk_ids: List[str], chunk_triples: List[Tuple]):
         """
-        Adds fact edges from given triples to the graph.
+        将给定三元组中的事实边添加到图中。
 
-        The method processes chunks of triples, computes unique identifiers
-        for entities and relations, and updates various internal statistics
-        to build and maintain the graph structure. Entities are uniquely
-        identified and linked based on their relationships.
+        该方法处理成批的三元组，计算实体和关系的唯一标识符，并更新各种内部统计信息以构建和维护图结构。
+        实体根据其关系被唯一标识并链接。
 
-        Parameters:
-            chunk_ids: List[str]
-                A list of unique identifiers for the chunks being processed.
-            chunk_triples: List[Tuple]
-                A list of tuples representing triples to process. Each triple
-                consists of a subject, predicate, and object.
+        参数:
+            chunk_ids (List[str]): 正在处理的段落（chunk）的唯一标识符列表。
+            chunk_triples (List[Tuple]): 待处理的三元组列表。每个三元组由主语、谓语和宾语组成。
 
         Raises:
             Does not explicitly raise exceptions within the provided function logic.
         """
 
+        # 获取当前图中已存在的节点集合，避免重复添加
         if "name" in self.graph.vs:
             current_graph_nodes = set(self.graph.vs["name"])
         else:
@@ -984,18 +993,23 @@ class HippoRAG:
 
         logger.info(f"Adding OpenIE triples to graph.")
 
+        # 遍历每个段落及其对应的三元组
         for chunk_key, triples in tqdm(zip(chunk_ids, chunk_triples)):
             entities_in_chunk = set()
 
+            # 仅处理图中尚未存在的段落（增量更新）
             if chunk_key not in current_graph_nodes:
                 for triple in triples:
                     triple = tuple(triple)
 
+                    # 计算主语和宾语实体的唯一哈希 ID
                     node_key = compute_mdhash_id(content=triple[0], prefix=("entity-"))
                     node_2_key = compute_mdhash_id(
                         content=triple[2], prefix=("entity-")
                     )
 
+                    # 更新节点间的共现统计（作为边的权重或存在性依据）
+                    # 这里是无向图逻辑，双向增加计数
                     self.node_to_node_stats[(node_key, node_2_key)] = (
                         self.node_to_node_stats.get((node_key, node_2_key), 0.0) + 1
                     )
@@ -1003,9 +1017,11 @@ class HippoRAG:
                         self.node_to_node_stats.get((node_2_key, node_key), 0.0) + 1
                     )
 
+                    # 记录该段落中出现的所有实体
                     entities_in_chunk.add(node_key)
                     entities_in_chunk.add(node_2_key)
 
+                # 建立实体到段落的反向索引：记录每个实体出现在哪些段落中
                 for node in entities_in_chunk:
                     self.ent_node_to_chunk_ids[node] = self.ent_node_to_chunk_ids.get(
                         node, set()
@@ -1015,27 +1031,21 @@ class HippoRAG:
         self, chunk_ids: List[str], chunk_triple_entities: List[List[str]]
     ):
         """
-        Adds edges connecting passage nodes to phrase nodes in the graph.
+        在图中添加连接段落节点（Passage Nodes）和短语节点（Phrase Nodes/Entity Nodes）的边。
 
-        This method is responsible for iterating through a list of chunk identifiers
-        and their corresponding triple entities. It calculates and adds new edges
-        between the passage nodes (defined by the chunk identifiers) and the phrase
-        nodes (defined by the computed unique hash IDs of triple entities). The method
-        also updates the node-to-node statistics map and keeps count of newly added
-        passage nodes.
+        此方法负责遍历段落标识符列表及其对应的三元组实体。它计算并在段落节点（由 chunk_ids 定义）
+        和短语节点（由三元组实体的唯一哈希 ID 定义）之间添加新边。
+        该方法还会更新节点到节点的统计映射，并统计新添加到图中的段落节点数量。
 
-        Parameters:
-            chunk_ids : List[str]
-                A list of identifiers representing passage nodes in the graph.
-            chunk_triple_entities : List[List[str]]
-                A list of lists where each sublist contains entities (strings) associated
-                with the corresponding chunk in the chunk_ids list.
+        参数:
+            chunk_ids (List[str]): 代表图中段落节点的标识符列表。
+            chunk_triple_entities (List[List[str]]): 一个列表的列表，其中每个子列表包含与 chunk_ids 列表中对应段落相关联的实体（字符串）。
 
-        Returns:
-            int
-                The number of new passage nodes added to the graph.
+        返回:
+            int: 添加到图中的新段落节点的数量。
         """
 
+        # 获取当前图中已存在的节点集合
         if "name" in self.graph.vs.attribute_names():
             current_graph_nodes = set(self.graph.vs["name"])
         else:
@@ -1045,12 +1055,18 @@ class HippoRAG:
 
         logger.info(f"Connecting passage nodes to phrase nodes.")
 
+        # 遍历每个段落
         for idx, chunk_key in tqdm(enumerate(chunk_ids)):
 
+            # 仅处理新段落
             if chunk_key not in current_graph_nodes:
+                # 遍历该段落中抽取出的所有实体
                 for chunk_ent in chunk_triple_entities[idx]:
+                    # 计算实体的哈希 ID
                     node_key = compute_mdhash_id(chunk_ent, prefix="entity-")
 
+                    # 建立段落到实体的连接（权重设为 1.0）
+                    # 这表示该段落包含该实体
                     self.node_to_node_stats[(chunk_key, node_key)] = 1.0
 
                 num_new_chunks += 1
@@ -1059,23 +1075,24 @@ class HippoRAG:
 
     def add_synonymy_edges(self):
         """
-        Adds synonymy edges between similar nodes in the graph to enhance connectivity by identifying and linking synonym entities.
+        在图中添加同义词边（Synonymy Edges），通过识别和连接相似的实体来增强图的连通性。
 
-        This method performs key operations to compute and add synonymy edges. It first retrieves embeddings for all nodes, then conducts
-        a nearest neighbor (KNN) search to find similar nodes. These similar nodes are identified based on a score threshold, and edges
-        are added to represent the synonym relationship.
+        该方法执行关键操作以计算并添加同义词边。它首先获取所有节点的嵌入向量，
+        然后执行最近邻（KNN）搜索以查找相似的节点。
+        基于相似度阈值识别出相似节点，并添加边来表示同义关系。
 
-        Attributes:
-            entity_id_to_row: dict (populated within the function). Maps each entity ID to its corresponding row data, where rows
-                              contain `content` of entities used for comparison.
-            entity_embedding_store: Manages retrieval of texts and embeddings for all rows related to entities.
-            global_config: Configuration object that defines parameters such as `synonymy_edge_topk`, `synonymy_edge_sim_threshold`,
-                           `synonymy_edge_query_batch_size`, and `synonymy_edge_key_batch_size`.
-            node_to_node_stats: dict. Stores scores for edges between nodes representing their relationship.
-
+        属性:
+            entity_id_to_row: dict (在函数内部填充)。将每个实体 ID 映射到其对应的行数据，
+                              其中包含用于比较的实体内容 `content`。
+            entity_embedding_store: 管理所有实体相关行的文本和嵌入的检索。
+            global_config: 配置对象，定义了如 `synonymy_edge_topk`（同义词边 Top-K）、
+                           `synonymy_edge_sim_threshold`（相似度阈值）、
+                           `synonymy_edge_query_batch_size` 和 `synonymy_edge_key_batch_size` 等参数。
+            node_to_node_stats: dict。存储节点间边的分数，表示它们的关系强度。
         """
         logger.info(f"Expanding graph with synonymy edges")
 
+        # 获取所有实体的 ID 到数据的映射
         self.entity_id_to_row = self.entity_embedding_store.get_all_id_to_rows()
         entity_node_keys = list(self.entity_id_to_row.keys())
 
@@ -1083,9 +1100,12 @@ class HippoRAG:
             f"Performing KNN retrieval for each phrase nodes ({len(entity_node_keys)})."
         )
 
+        # 获取所有实体的嵌入向量
         entity_embs = self.entity_embedding_store.get_embeddings(entity_node_keys)
 
-        # Here we build synonymy edges only between newly inserted phrase nodes and all phrase nodes in the storage to reduce cost for incremental graph updates
+        # 执行 KNN 检索，找出每个实体的 Top-K 相似实体
+        # 这里我们仅在新插入的短语节点和存储中的所有短语节点之间建立同义词边，以降低增量图更新的成本
+        # (注：当前代码实现看起来是全量计算，query_ids 和 key_ids 都是 entity_node_keys)
         query_node_key2knn_node_keys = retrieve_knn(
             query_ids=entity_node_keys,
             key_ids=entity_node_keys,
@@ -1101,6 +1121,7 @@ class HippoRAG:
             []
         )  # [(node key, [(synonym node key, corresponding score), ...]), ...]
 
+        # 遍历每个节点及其 KNN 结果
         for node_key in tqdm(
             query_node_key2knn_node_keys.keys(), total=len(query_node_key2knn_node_keys)
         ):
@@ -1108,11 +1129,14 @@ class HippoRAG:
 
             entity = self.entity_id_to_row[node_key]["content"]
 
+            # 过滤掉过短的实体（去除非字母数字字符后长度大于 2）
             if len(re.sub("[^A-Za-z0-9]", "", entity)) > 2:
                 nns = query_node_key2knn_node_keys[node_key]
 
                 num_nns = 0
+                # 遍历最近邻节点及其相似度分数
                 for nn, score in zip(nns[0], nns[1]):
+                    # 如果相似度低于阈值，或者已经找到了足够多的同义词（>100），则停止
                     if (
                         score < self.global_config.synonymy_edge_sim_threshold
                         or num_nns > 100
@@ -1121,11 +1145,13 @@ class HippoRAG:
 
                     nn_phrase = self.entity_id_to_row[nn]["content"]
 
+                    # 排除自身，且确保邻居实体内容不为空
                     if nn != node_key and nn_phrase != "":
                         sim_edge = (node_key, nn)
                         synonyms.append((nn, score))
                         num_synonym_triple += 1
 
+                        # 将同义词边添加到统计字典中，权重为相似度分数
                         self.node_to_node_stats[sim_edge] = (
                             score  # Need to seriously discuss on this
                         )
@@ -1286,9 +1312,8 @@ class HippoRAG:
 
     def augment_graph(self):
         """
-        Provides utility functions to augment a graph by adding new nodes and edges.
-        It ensures that the graph structure is extended to include additional components,
-        and logs the completion status along with printing the updated graph information.
+        提供实用功能以通过添加新节点和边来增强图。
+        它确保图结构被扩展以包含额外的组件，并记录完成状态以及打印更新后的图信息。
         """
 
         self.add_new_nodes()
@@ -1299,33 +1324,38 @@ class HippoRAG:
 
     def add_new_nodes(self):
         """
-        Adds new nodes to the graph from entity and passage embedding stores based on their attributes.
+        根据属性从实体和段落嵌入存储中向图添加新节点。
 
-        This method identifies and adds new nodes to the graph by comparing existing nodes
-        in the graph and nodes retrieved from the entity embedding store and the passage
-        embedding store. The method checks attributes and ensures no duplicates are added.
-        New nodes are prepared and added in bulk to optimize graph updates.
+        此方法通过比较图中现有的节点与从实体嵌入存储和段落嵌入存储中检索到的节点来识别并添加新节点。
+        该方法检查属性并确保不添加重复项。
+        新节点被准备好并批量添加，以优化图的更新。
         """
 
+        # 获取图中已存在的节点，以 "name" 属性为键
         existing_nodes = {
             v["name"]: v for v in self.graph.vs if "name" in v.attributes()
         }
 
+        # 从存储中获取所有实体和段落的数据
         entity_to_row = self.entity_embedding_store.get_all_id_to_rows()
         passage_to_row = self.chunk_embedding_store.get_all_id_to_rows()
 
+        # 合并实体和段落数据
         node_to_rows = entity_to_row
         node_to_rows.update(passage_to_row)
 
         new_nodes = {}
+        # 遍历所有潜在节点
         for node_id, node in node_to_rows.items():
             node["name"] = node_id
+            # 如果节点不在现有图中，则准备添加
             if node_id not in existing_nodes:
                 for k, v in node.items():
                     if k not in new_nodes:
                         new_nodes[k] = []
                     new_nodes[k].append(v)
 
+        # 如果有新节点，批量添加到图中
         if len(new_nodes) > 0:
             self.graph.add_vertices(
                 n=len(next(iter(new_nodes.values()))), attributes=new_nodes
@@ -1333,30 +1363,44 @@ class HippoRAG:
 
     def add_new_edges(self):
         """
-        Processes edges from `node_to_node_stats` to add them into a graph object while
-        managing adjacency lists, validating edges, and logging invalid edge cases.
+        处理 `node_to_node_stats` 中的边，将其添加到图对象中，同时管理邻接表，
+        验证边，并记录无效边的情况。
         """
 
+        # 图的邻接表：graph_adj_list[source][target] = weight，用于快速查找出边
         graph_adj_list = defaultdict(dict)
+        # 图的逆邻接表：graph_inverse_adj_list[target][source] = weight，用于快速查找入边
         graph_inverse_adj_list = defaultdict(dict)
+        # 待添加边的源节点 ID 列表
         edge_source_node_keys = []
+        # 待添加边的目标节点 ID 列表
         edge_target_node_keys = []
+        # 待添加边的元数据列表（如权重）
         edge_metadata = []
+
+        # 遍历统计到的所有边
         for edge, weight in self.node_to_node_stats.items():
+            # 跳过自环（源节点和目标节点相同）
             if edge[0] == edge[1]:
                 continue
+
+            # 构建邻接表（虽然此处构建了但后续主要使用列表批量添加）
             graph_adj_list[edge[0]][edge[1]] = weight
             graph_inverse_adj_list[edge[1]][edge[0]] = weight
 
+            # 收集边的源节点、目标节点和权重
             edge_source_node_keys.append(edge[0])
             edge_target_node_keys.append(edge[1])
             edge_metadata.append({"weight": weight})
 
         valid_edges, valid_weights = [], {"weight": []}
         current_node_ids = set(self.graph.vs["name"])
+
+        # 验证并筛选有效的边
         for source_node_id, target_node_id, edge_d in zip(
             edge_source_node_keys, edge_target_node_keys, edge_metadata
         ):
+            # 确保边的两端节点都存在于图中
             if (
                 source_node_id in current_node_ids
                 and target_node_id in current_node_ids
@@ -1365,9 +1409,12 @@ class HippoRAG:
                 weight = edge_d.get("weight", 1.0)
                 valid_weights["weight"].append(weight)
             else:
+                # 记录无效边（通常是因为节点未被正确添加）
                 logger.warning(
                     f"Edge {source_node_id} -> {target_node_id} is not valid."
                 )
+
+        # 批量向图中添加边及其属性
         self.graph.add_edges(valid_edges, attributes=valid_weights)
 
     def save_igraph(self):
@@ -1450,6 +1497,12 @@ class HippoRAG:
 
         logger.info("Loading keys.")
         # 初始化查询到嵌入的缓存字典，分为 'triple' (事实/三元组视角) 和 'passage' (段落视角)
+        # 为什么要区分？
+        # 1. 不同的检索任务：'triple' 用于检索短小的结构化事实（Fact Retrieval），'passage' 用于检索长文本段落（DPR）。
+        # 2. 不同的指令（Instruction）：现代 Embedding 模型支持通过指令微调。
+        #    - query_to_fact: "Given a question, retrieve relevant triplet facts..."
+        #    - query_to_passage: "Given a question, retrieve relevant documents..."
+        #    这使得同一个 Query 可以生成两种不同的向量，分别针对“找事实”和“找段落”进行优化。
         self.query_to_embedding: Dict = {"triple": {}, "passage": {}}
 
         # 从嵌入存储中加载所有实体、段落和事实的键（ID）
@@ -1772,14 +1825,14 @@ class HippoRAG:
                 - 过滤后的 `all_phrase_weights` 数组，其中未选中短语的权重被设为 0.0。
                 - 仅包含前 `link_top_k` 个短语的过滤后的 `linking_score_map`。
         """
-        # choose top ranked nodes in linking_score_map
+        # 选择 linking_score_map 中排名靠前的节点
         linking_score_map = dict(
             sorted(linking_score_map.items(), key=lambda x: x[1], reverse=True)[
                 :link_top_k
             ]
         )
 
-        # only keep the top_k phrases in all_phrase_weights
+        # 只保留 all_phrase_weights 中的 top_k 短语
         top_k_phrases = set(linking_score_map.keys())
         top_k_phrases_keys = set(
             [
@@ -1875,6 +1928,7 @@ class HippoRAG:
             phrase_scores[phrase].append(phrase_weights[phrase_id])
 
         # 计算每个短语的平均事实分数，用于 linking_score_map
+        # OPTIMIZE:这段代码似乎没有必要，scores 只会有一个值，且在前面已经计算过平均值了
         for phrase, scores in phrase_scores.items():
             linking_score_map[phrase] = float(np.mean(scores))
 
@@ -1886,12 +1940,12 @@ class HippoRAG:
 
         # 获取基于稠密检索模型（DPR）的段落分数
         dpr_sorted_doc_ids, dpr_sorted_doc_scores = self.dense_passage_retrieval(query)
-        normalized_dpr_sorted_scores = min_max_normalize(dpr_sorted_doc_scores)
+        # normalized_dpr_sorted_scores = min_max_normalize(dpr_sorted_doc_scores) # 在dense_passage_retrieval中已经归一化过了
 
         # 将 DPR 分数分配给段落节点
         for i, dpr_sorted_doc_id in enumerate(dpr_sorted_doc_ids.tolist()):
             passage_node_key = self.passage_node_keys[dpr_sorted_doc_id]
-            passage_dpr_score = normalized_dpr_sorted_scores[i]
+            passage_dpr_score = dpr_sorted_doc_scores[i]
             passage_node_id = self.node_name_to_vertex_idx[passage_node_key]
             passage_weights[passage_node_id] = passage_dpr_score * passage_node_weight
             passage_node_text = self.chunk_embedding_store.get_row(passage_node_key)[
@@ -2010,30 +2064,36 @@ class HippoRAG:
         self, reset_prob: np.ndarray, damping: float = 0.5
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Runs Personalized PageRank (PPR) on a graph and computes relevance scores for
-        nodes corresponding to document passages. The method utilizes a damping
-        factor for teleportation during rank computation and can take a reset
-        probability array to influence the starting state of the computation.
+        在图上运行个性化 PageRank (PPR) 算法，并计算对应于文档段落的节点的相关性分数。
 
-        Parameters:
-            reset_prob (np.ndarray): A 1-dimensional array specifying the reset
-                probability distribution for each node. The array must have a size
-                equal to the number of nodes in the graph. NaNs or negative values
-                within the array are replaced with zeros.
-            damping (float): A scalar specifying the damping factor for the
-                computation. Defaults to 0.5 if not provided or set to `None`.
+        该方法利用阻尼因子（damping factor）进行随机游走计算，并接受一个重置概率数组（reset probability）
+        来影响计算的起始状态（即个性化偏好）。
 
-        Returns:
-            Tuple[np.ndarray, np.ndarray]: A tuple containing two numpy arrays. The
-                first array represents the sorted node IDs of document passages based
-                on their relevance scores in descending order. The second array
-                contains the corresponding relevance scores of each document passage
-                in the same order.
+        参数:
+            reset_prob (np.ndarray): 一维数组，指定每个节点的重置概率分布。
+                数组的大小必须等于图中的节点数量。数组中的 NaN 或负值将被替换为零。
+            damping (float): 标量，指定计算的阻尼因子。
+                如果未提供或设置为 `None`，则默认为 0.5。
+
+        返回:
+            Tuple[np.ndarray, np.ndarray]: 包含两个 numpy 数组的元组。
+                - 第一个数组表示根据相关性分数降序排列的文档段落节点 ID。
+                - 第二个数组包含每个文档段落对应的相关性分数，顺序与 ID 数组一致。
         """
 
         if damping is None:
-            damping = 0.5  # for potential compatibility
+            damping = 0.5  # 为了潜在的兼容性，如果为 None 则设为默认值 0.5
+
+        # 清理重置概率数组：将 NaN 或负值替换为 0
         reset_prob = np.where(np.isnan(reset_prob) | (reset_prob < 0), 0, reset_prob)
+
+        # 调用 igraph 的 personalized_pagerank 方法计算 PPR 分数
+        # vertices: 计算所有节点的 PageRank 值
+        # damping: 阻尼因子，决定了随机游走继续的概率
+        # directed: False 表示视为无向图
+        # weights: 使用边的 "weight" 属性作为权重
+        # reset: 个性化向量，指定随机跳转到各节点的概率
+        # implementation: 使用 "prpack" 实现，通常更快更稳健
         pagerank_scores = self.graph.personalized_pagerank(
             vertices=range(len(self.node_name_to_vertex_idx)),
             damping=damping,
@@ -2043,8 +2103,13 @@ class HippoRAG:
             implementation="prpack",
         )
 
+        # 仅提取段落节点（Passage Nodes）的 PageRank 分数
         doc_scores = np.array([pagerank_scores[idx] for idx in self.passage_node_idxs])
+
+        # 对段落分数进行降序排序，获取排序后的索引
         sorted_doc_ids = np.argsort(doc_scores)[::-1]
+
+        # 获取对应的排序后的分数
         sorted_doc_scores = doc_scores[sorted_doc_ids.tolist()]
 
         return sorted_doc_ids, sorted_doc_scores
