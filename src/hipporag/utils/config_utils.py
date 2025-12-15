@@ -174,7 +174,7 @@ class BaseConfig:
         metadata={"help": "每个检索步骤中链接节点的数量"}
     )
     retrieval_top_k: int = field(
-        default=200,
+        default=20,
         metadata={"help": "每个步骤检索 k 个文档"}
     )
     damping: float = field(

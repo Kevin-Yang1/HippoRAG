@@ -510,10 +510,10 @@ class HippoRAG:
         ):
             rerank_start = time.time()
 
-            # 1. 获取查询与事实的相似度得分
+            # 1. 获取查询与事实的向量相似度得分
             query_fact_scores = self.get_fact_scores(query)
 
-            # 2. 对事实进行重排序，筛选出 Top-K 相关事实  Top-K 事实已经过大模型过滤
+            # 2. 对事实进行重排序，筛选出 Top-K 相关事实  然后使用大模型过滤，过滤后的事实可能少于K个
             top_k_fact_indices, top_k_facts, rerank_log = self.rerank_facts(
                 query, query_fact_scores
             )
@@ -522,14 +522,24 @@ class HippoRAG:
             self.rerank_time += rerank_end - rerank_start
 
             # 3. 根据是否有相关事实决定检索策略
+            top_phrases = []
+            top_dpr_docs = []
+            
             if len(top_k_facts) == 0:
                 # 如果没有找到相关事实（通常发生在长查询或无匹配事实时），回退到稠密段落检索
                 logger.info("No facts found after reranking, return DPR results")
                 sorted_doc_ids, sorted_doc_scores = self.dense_passage_retrieval(query)
+                
+                # Extract top DPR docs for consistency
+                for i in range(min(5, len(sorted_doc_ids))):
+                     doc_id = sorted_doc_ids[i]
+                     score = sorted_doc_scores[i]
+                     content = self.chunk_embedding_store.get_row(self.passage_node_keys[doc_id])["content"]
+                     top_dpr_docs.append((float(score), content))
             else:
                 # 如果找到了相关事实，使用基于图的 PPR 算法进行检索
-                # 结合了查询、筛选出的事实以及段落节点权重
-                sorted_doc_ids, sorted_doc_scores = (
+                # 返回最终用于发给LLM推理的段落节点及其权重 sorted_doc_ids, sorted_doc_scores，
+                sorted_doc_ids, sorted_doc_scores, top_phrases, top_dpr_docs = (
                     self.graph_search_with_fact_entities(
                         query=query,
                         link_top_k=self.global_config.linking_top_k,
@@ -539,6 +549,18 @@ class HippoRAG:
                         passage_node_weight=self.global_config.passage_node_weight,
                     )
                 )
+
+            # Construct top_facts list with scores
+            top_facts_with_scores = []
+            for i, fact in enumerate(top_k_facts):
+                # Ensure index is valid (it should be)
+                if i < len(top_k_fact_indices):
+                    idx = top_k_fact_indices[i]
+                    # Handle case where query_fact_scores might be scalar or array
+                    score = query_fact_scores[idx] if isinstance(query_fact_scores, np.ndarray) else query_fact_scores
+                    top_facts_with_scores.append((float(score), str(fact)))
+                else:
+                    top_facts_with_scores.append((0.0, str(fact)))
 
             # 获取 Top-K 文档的内容
             top_k_docs = [
@@ -554,6 +576,9 @@ class HippoRAG:
                     question=query,
                     docs=top_k_docs,
                     doc_scores=sorted_doc_scores[:num_to_retrieve],
+                    top_facts=top_facts_with_scores,
+                    top_phrases=top_phrases,
+                    top_dpr_docs=top_dpr_docs
                 )
             )
 
@@ -571,7 +596,7 @@ class HippoRAG:
 
         # 如果提供了标准文档，执行检索评估
         if gold_docs is not None:
-            k_list = [1, 2, 3, 4, 5, 10, 20, 30, 50, 100, 150, 200]
+            k_list = [1, 2, 3, 4, 5, 10, 20]
             overall_retrieval_result, example_retrieval_results = (
                 retrieval_recall_evaluator.calculate_metric_scores(
                     gold_docs=gold_docs,
@@ -581,6 +606,12 @@ class HippoRAG:
                     k_list=k_list,
                 )
             )
+            
+            # 为每个查询解决方案分配召回率数据
+            for i, result in enumerate(retrieval_results):
+                if i < len(example_retrieval_results):
+                    result.recall_stats = example_retrieval_results[i]
+
             logger.info(f"Evaluation results for retrieval: {overall_retrieval_result}")
 
             return retrieval_results, overall_retrieval_result
@@ -933,11 +964,11 @@ class HippoRAG:
                 prompt_dataset_name = "musique"
 
             # 渲染最终的提示消息
-            all_qa_messages.append(
-                self.prompt_template_manager.render(
-                    name=f"rag_qa_{prompt_dataset_name}", prompt_user=prompt_user
-                )
+            rendered_prompt = self.prompt_template_manager.render(
+                name=f"rag_qa_{prompt_dataset_name}", prompt_user=prompt_user
             )
+            query_solution.rag_prompt = prompt_user 
+            all_qa_messages.append(rendered_prompt)
 
         # 2. 调用 LLM 进行批量推理
         all_qa_results = [
@@ -961,7 +992,7 @@ class HippoRAG:
                 pred_ans = response_content.split("Answer:")[1].strip()
             except Exception as e:
                 logger.warning(
-                    f"Error in parsing the answer from the raw LLM QA inference response: {str(e)}!"
+                    f"Error in parsing the answer from the raw LLM QA inference response (idx={query_solution_idx}): {str(e)}!"
                 )
                 pred_ans = response_content
 
@@ -1858,7 +1889,7 @@ class HippoRAG:
         top_k_facts: List[Tuple],
         top_k_fact_indices: List[str],
         passage_node_weight: float = 0.05,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray, List[Tuple[float, str]], List[Tuple[float, str]]]:
         """
         结合事实实体和稠密检索结果，在图上执行搜索（Personalized PageRank）。
 
@@ -1874,9 +1905,12 @@ class HippoRAG:
             passage_node_weight (float): 用于缩放图中段落分数的默认权重。
 
         返回:
-            Tuple[np.ndarray, np.ndarray]: 包含两个数组的元组：
+            Tuple[np.ndarray, np.ndarray, List[Tuple[float, str]], List[Tuple[float, str]]]: 包含四个元素的元组：
                 - 第一个数组是根据分数排序的文档 ID。
                 - 第二个数组是与排序后的文档 ID 对应的 PPR 分数。
+                调试用：
+                - 第三个列表包含 ppr 之前按得分降序排列的短语及其得分 (score, phrase)。
+                - 第四个列表包含 ppr 之前 DPR 检索到的前 5 个段落及其得分 (score, content)。
         """
 
         # 根据前一步选出的事实分配短语权重。
@@ -1912,13 +1946,13 @@ class HippoRAG:
                         weighted_fact_score /= len(
                             self.ent_node_to_chunk_ids[phrase_key]
                         )
-
+                    # 根据出现次数叠加权重，后续会进行平均，防止“以多取胜”
                     phrase_weights[phrase_id] += weighted_fact_score
                     number_of_occurs[phrase_id] += 1
 
                 phrases_and_ids.add((phrase, phrase_id))
 
-        # 对短语权重进行平均
+        # 对短语权重进行平均，防止“以多取胜”
         phrase_weights /= number_of_occurs
 
         for phrase, phrase_id in phrases_and_ids:
@@ -1938,9 +1972,19 @@ class HippoRAG:
                 link_top_k, phrase_weights, linking_score_map
             )  # 在此阶段，linking_score_map 的长度由 link_top_k 决定
 
+        # Capture top phrases for debugging
+        top_phrases = sorted(linking_score_map.items(), key=lambda x: x[1], reverse=True)
+
         # 获取基于稠密检索模型（DPR）的段落分数
         dpr_sorted_doc_ids, dpr_sorted_doc_scores = self.dense_passage_retrieval(query)
-        # normalized_dpr_sorted_scores = min_max_normalize(dpr_sorted_doc_scores) # 在dense_passage_retrieval中已经归一化过了
+        
+        # Capture top DPR docs for debugging
+        top_dpr_docs = []
+        for i in range(min(5, len(dpr_sorted_doc_ids))):
+             doc_id = dpr_sorted_doc_ids[i]
+             score = dpr_sorted_doc_scores[i]
+             content = self.chunk_embedding_store.get_row(self.passage_node_keys[doc_id])["content"]
+             top_dpr_docs.append((float(score), content))
 
         # 将 DPR 分数分配给段落节点
         for i, dpr_sorted_doc_id in enumerate(dpr_sorted_doc_ids.tolist()):
@@ -1981,7 +2025,7 @@ class HippoRAG:
             self.passage_node_idxs
         ), f"Doc prob length {len(ppr_sorted_doc_ids)} != corpus length {len(self.passage_node_idxs)}"
 
-        return ppr_sorted_doc_ids, ppr_sorted_doc_scores
+        return ppr_sorted_doc_ids, ppr_sorted_doc_scores, top_phrases, top_dpr_docs
 
     def rerank_facts(
         self, query: str, query_fact_scores: np.ndarray
@@ -2007,6 +2051,7 @@ class HippoRAG:
         """
         # 加载配置参数：需要保留的链接（事实）数量
         link_top_k: int = self.global_config.linking_top_k
+        # link_top_k = 10
 
         # 检查是否有事实可供重排序
         if len(query_fact_scores) == 0 or len(self.fact_node_keys) == 0:

@@ -226,7 +226,7 @@ def main():
         force_index_from_scratch=force_index_from_scratch,  # ignore previously stored index, set it to False if you want to use the previously stored index and embeddings
         force_openie_from_scratch=force_openie_from_scratch,
         rerank_dspy_file_path="src/hipporag/prompts/dspy_prompts/filter_llama3.3-70B-Instruct.json",
-        retrieval_top_k=200,
+        retrieval_top_k=20,
         linking_top_k=5,
         max_qa_steps=3,
         qa_top_k=5,
@@ -238,13 +238,30 @@ def main():
     )
 
     logging.basicConfig(level=logging.INFO)
+    # Suppress httpx logging
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     hipporag = HippoRAG(global_config=config)
 
     hipporag.index(docs)
 
     # Retrieval and QA
-    hipporag.rag_qa(queries=all_queries, gold_docs=gold_docs, gold_answers=gold_answers)
+    results = hipporag.rag_qa(queries=all_queries, gold_docs=gold_docs, gold_answers=gold_answers)
+    
+    # Save results to file
+    output_file = os.path.join(save_dir, "rag_qa_results.json")
+    
+    # Extract QuerySolution objects from results
+    # rag_qa returns a tuple, the first element is the list of QuerySolution objects
+    query_solutions = results[0]
+    
+    # Convert QuerySolution objects to dictionaries
+    output_data = [qs.to_dict() for qs in query_solutions]
+    
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(output_data, f, ensure_ascii=False, indent=2)
+        
+    logging.info(f"RAG QA results saved to {output_file}")
 
 
 if __name__ == "__main__":

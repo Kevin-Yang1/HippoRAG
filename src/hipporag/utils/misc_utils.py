@@ -68,6 +68,10 @@ class QuerySolution:
         answer (str): 生成的答案。
         gold_answers (List[str]): 标准答案列表（用于评估）。
         gold_docs (Optional[List[str]]): 标准文档列表（用于评估）。
+        top_facts (List[Tuple[float, str]]): 向量相似性排名靠前的事实/三元组及其得分。
+        top_phrases (List[Tuple[float, str]]): 向量相似性排名排名靠前的短语/实体及其得分。
+        top_dpr_docs (List[Tuple[float, str]]): DPR 检索到的前几个文档及其得分（也是向量相似性）。
+        recall_stats (Dict[str, float]): 检索召回率统计信息。
     """
     question: str
     docs: List[str]
@@ -75,17 +79,34 @@ class QuerySolution:
     answer: str = None
     gold_answers: List[str] = None
     gold_docs: Optional[List[str]] = None
+    # Debug info
+    top_facts: List[Tuple[float, str]] = None
+    top_phrases: List[Tuple[float, str]] = None
+    top_dpr_docs: List[Tuple[float, str]] = None
+    recall_stats: Dict[str, float] = None
+    rag_prompt: str = None
 
 
     def to_dict(self):
         """将对象转换为字典格式，便于序列化或打印。"""
+        docs_with_scores = []
+        if self.docs:
+            if self.doc_scores is not None:
+                docs_with_scores = list(zip(self.doc_scores.tolist(), self.docs))
+            else:
+                docs_with_scores = [(0.0, doc) for doc in self.docs]
+
         return {
             "question": self.question,
             "answer": self.answer,
             "gold_answers": self.gold_answers,
-            "docs": self.docs[:5],
-            "doc_scores": [round(v, 4) for v in self.doc_scores.tolist()[:5]]  if self.doc_scores is not None else None,
+            "top_facts": self.top_facts,
+            "top_phrases": self.top_phrases,
+            "top_dpr_docs": self.top_dpr_docs,
+            "top_ppr_docs": docs_with_scores,
             "gold_docs": self.gold_docs,
+            "rag_prompt": self.rag_prompt,
+            "recall_stats": self.recall_stats
         }
 
 def text_processing(text):
